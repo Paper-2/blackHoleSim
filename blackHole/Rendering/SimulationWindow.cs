@@ -23,12 +23,10 @@ unsafe public class SimulationWindow
     private Queue _graphicsQueue;
     private KhrSwapchain? _khrSwapchain;
     private SwapchainKHR _swapchain;
+
     private Image[] _swapchainImages = Array.Empty<Image>();
     private ImageView[] _swapchainImageViews = Array.Empty<ImageView>();
     private uint _graphicsQueueFamily;
-
-    private CommandPool _commandPool;
-    private CommandBuffer _commandBuffer;
 
     // Staging buffer for pixel data
     private Silk.NET.Vulkan.Buffer _stagingBuffer;
@@ -38,6 +36,9 @@ unsafe public class SimulationWindow
 
     public int Width = 1280;
     public int Height = 720;
+
+    private RenderWorker _renderWorker = new();
+
 
     public void Initialize()
     {
@@ -50,7 +51,8 @@ unsafe public class SimulationWindow
         _window = Window.Create(options);
 
         _window.Load += OnLoad;
-        _window.Render += OnRender;
+        // OnRender is now handled by RenderWorker
+        // _window.Render += OnRender;
         _window.Update += OnUpdate;
         _window.Resize += OnResize;
         _window.Closing += OnClosing;
@@ -70,9 +72,10 @@ unsafe public class SimulationWindow
         InitializeLogicalDevice();
         InitializeSwapChain();
         InitializeImageView();
-        InitializeCommandPool();
-        InitializeCommandBuffer();
-        InitializeStagingBuffer();
+
+
+        _renderWorker.Start(_vk!, _instance, _device, _graphicsQueue, _swapchain, _graphicsQueueFamily);
+        
     }
 
     private void InitializeVulkanInstance()
@@ -262,6 +265,7 @@ unsafe public class SimulationWindow
         }
     }
 
+    /* Now handled by RenderWorker
     private void InitializeCommandPool()
     {
         CommandPoolCreateInfo poolInfo = new()
@@ -295,6 +299,7 @@ unsafe public class SimulationWindow
             }
         }
     }
+    */
 
     private uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
     {
@@ -359,117 +364,12 @@ unsafe public class SimulationWindow
         _khrSwapchain?.DestroySwapchain(_device, _swapchain, null);
     }
 
+    /* Now handled by RenderWorker
     private void OnRender(double deltaTime)
     {
-        uint imageIndex = 0;
-        _khrSwapchain!.AcquireNextImage(_device, _swapchain, ulong.MaxValue, default, default, &imageIndex);
-
-        // Generate random pixel data
-        int pixelCount = Width * Height;
-        byte* data;
-        _vk!.MapMemory(_device, _stagingBufferMemory, 0, (ulong)(pixelCount * 4), 0, (void**)&data);
-
-        for (int i = 0; i < pixelCount; i++)
-        {
-            var brightness = (byte)_random.Next(256);
-            data[i * 4 + 0] = brightness; // B
-            data[i * 4 + 1] = brightness; // G
-            data[i * 4 + 2] = brightness; // R
-            data[i * 4 + 3] = 255;        // A
-        }
-
-        _vk.UnmapMemory(_device, _stagingBufferMemory);
-
-        // Record command buffer
-        CommandBufferBeginInfo beginInfo = new()
-        {
-            SType = StructureType.CommandBufferBeginInfo,
-            Flags = CommandBufferUsageFlags.OneTimeSubmitBit
-        };
-
-        _vk.BeginCommandBuffer(_commandBuffer, &beginInfo);
-
-        // Transition image to transfer destination
-        ImageMemoryBarrier barrier = new()
-        {
-            SType = StructureType.ImageMemoryBarrier,
-            OldLayout = ImageLayout.Undefined,
-            NewLayout = ImageLayout.TransferDstOptimal,
-            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            Image = _swapchainImages[imageIndex],
-            SubresourceRange = new ImageSubresourceRange
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                BaseMipLevel = 0,
-                LevelCount = 1,
-                BaseArrayLayer = 0,
-                LayerCount = 1
-            },
-            SrcAccessMask = 0,
-            DstAccessMask = AccessFlags.TransferWriteBit
-        };
-
-        _vk.CmdPipelineBarrier(_commandBuffer, PipelineStageFlags.TopOfPipeBit, PipelineStageFlags.TransferBit,
-            0, 0, null, 0, null, 1, &barrier);
-
-        // Copy buffer to image
-        BufferImageCopy region = new()
-        {
-            BufferOffset = 0,
-            BufferRowLength = 0,
-            BufferImageHeight = 0,
-            ImageSubresource = new ImageSubresourceLayers
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                MipLevel = 0,
-                BaseArrayLayer = 0,
-                LayerCount = 1
-            },
-            ImageOffset = new Offset3D(0, 0, 0),
-            ImageExtent = new Extent3D((uint)Width, (uint)Height, 1)
-        };
-
-        _vk.CmdCopyBufferToImage(_commandBuffer, _stagingBuffer, _swapchainImages[imageIndex],
-            ImageLayout.TransferDstOptimal, 1, &region);
-
-        // Transition to present
-        barrier.OldLayout = ImageLayout.TransferDstOptimal;
-        barrier.NewLayout = ImageLayout.PresentSrcKhr;
-        barrier.SrcAccessMask = AccessFlags.TransferWriteBit;
-        barrier.DstAccessMask = 0;
-
-        _vk.CmdPipelineBarrier(_commandBuffer, PipelineStageFlags.TransferBit, PipelineStageFlags.BottomOfPipeBit,
-            0, 0, null, 0, null, 1, &barrier);
-
-        _vk.EndCommandBuffer(_commandBuffer);
-
-        // Submit command buffer
-        var commandBuffer = _commandBuffer;
-        SubmitInfo submitInfo = new()
-        {
-            SType = StructureType.SubmitInfo,
-            CommandBufferCount = 1,
-            PCommandBuffers = &commandBuffer
-        };
-
-        _vk.QueueSubmit(_graphicsQueue, 1, &submitInfo, default);
-        _vk.QueueWaitIdle(_graphicsQueue);
-
-        // Present
-        var swapchain = _swapchain;
-        PresentInfoKHR presentInfo = new()
-        {
-            SType = StructureType.PresentInfoKhr,
-            SwapchainCount = 1,
-            PSwapchains = &swapchain,
-            PImageIndices = &imageIndex
-        };
-
-        _khrSwapchain.QueuePresent(_graphicsQueue, &presentInfo);
-
-        Console.Write($"\rFPS: {1.0 / deltaTime:F1}");
+        // ... old rendering code ...
     }
+    */
 
     private void OnUpdate(double deltaTime)
     {
@@ -483,17 +383,8 @@ unsafe public class SimulationWindow
         Width = newSize.X;
         Height = newSize.Y;
 
-        _vk!.DeviceWaitIdle(_device);
-
-        CleanupSwapChain();
-
-        InitializeSwapChain();
-        InitializeImageView();
-
-        _vk.DestroyBuffer(_device, _stagingBuffer, null);
-        _vk.FreeMemory(_device, _stagingBufferMemory, null);
-        InitializeStagingBuffer();
-
+        // Send resize command to RenderWorker
+        _renderWorker.SendCommand(new ResizeCommand(newSize.X, newSize.Y));
     }
 
     private void OnClosing()
@@ -501,9 +392,13 @@ unsafe public class SimulationWindow
         Console.WriteLine("Closing Window");
         _isRunning = false;
 
+        // Stop render worker first
+        _renderWorker.Stop();
+        _renderWorker.Dispose();
+
+        // Cleanup remaining resources
         _vk!.DestroyBuffer(_device, _stagingBuffer, null);
         _vk.FreeMemory(_device, _stagingBufferMemory, null);
-        _vk.DestroyCommandPool(_device, _commandPool, null);
 
         foreach (var imageView in _swapchainImageViews)
         {

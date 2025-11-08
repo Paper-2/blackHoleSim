@@ -12,7 +12,10 @@
         "shaderc",
         "SPIR",
         "SPIRV",
+        "Srgb",
+        "Subresource",
         "Swapchain",
+        "Swapchains",
         "Verlet",
         "wwwroot"
     ]
