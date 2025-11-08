@@ -1,20 +1,15 @@
-using Microsoft.Extensions.ObjectPool;
+using Silk.NET.Core;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
-using Silk.NET.Windowing;
-using blackHole;
-using blackHole.Models;
-using System.Runtime.InteropServices;
-using Microsoft.AspNetCore.Routing.Tree;
-using Silk.NET.Core;
 using Silk.NET.Vulkan.Extensions.KHR;
+using Silk.NET.Windowing;
+using System.Runtime.InteropServices;
 
 namespace blackHole.Rendering;
 
 unsafe public class SimulationWindow
 {
     private IWindow? _window;
-    private bool _isRunning;
     private Vk? _vk;
     private Instance _instance;
     private SurfaceKHR _surface;
@@ -60,7 +55,6 @@ unsafe public class SimulationWindow
 
     public void Run()
     {
-        _isRunning = true;
         _window?.Run();
     }
 
@@ -74,8 +68,9 @@ unsafe public class SimulationWindow
         InitializeImageView();
 
 
-        _renderWorker.Start(_vk!, _instance, _device, _graphicsQueue, _swapchain, _graphicsQueueFamily);
-        
+        _renderWorker.Start(_vk!, _instance, _device, _physicalDevice, _graphicsQueue,
+                           _swapchain, _graphicsQueueFamily, _khrSwapchain!, Width, Height, _surface);
+
     }
 
     private void InitializeVulkanInstance()
@@ -390,7 +385,6 @@ unsafe public class SimulationWindow
     private void OnClosing()
     {
         Console.WriteLine("Closing Window");
-        _isRunning = false;
 
         // Stop render worker first
         _renderWorker.Stop();

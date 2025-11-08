@@ -1,6 +1,6 @@
-using System.Diagnostics;
-using Microsoft.AspNetCore.Mvc;
 using blackHole.Models;
+using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
 
 namespace blackHole.Controllers;
 
