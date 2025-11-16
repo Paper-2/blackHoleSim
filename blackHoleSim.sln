@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "blackHole", "blackHole\blackHole.csproj", "{ACD06E66-A50F-4FAD-A26C-103DD2C315F8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackHoleTests", "Tests\BlackHoleTests\BlackHoleTests.csproj", "{B1234567-89AB-CDEF-0123-456789ABCDEF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,18 @@ Global
 		{ACD06E66-A50F-4FAD-A26C-103DD2C315F8}.Release|x64.Build.0 = Release|Any CPU
 		{ACD06E66-A50F-4FAD-A26C-103DD2C315F8}.Release|x86.ActiveCfg = Release|Any CPU
 		{ACD06E66-A50F-4FAD-A26C-103DD2C315F8}.Release|x86.Build.0 = Release|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Debug|x64.Build.0 = Debug|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Debug|x86.Build.0 = Debug|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Release|x64.ActiveCfg = Release|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Release|x64.Build.0 = Release|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Release|x86.ActiveCfg = Release|Any CPU
+		{B1234567-89AB-CDEF-0123-456789ABCDEF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -11,16 +11,19 @@ This project simulates the gravitational effects and visual phenomena of a black
 - **.NET 9.0** - Modern C# framework
 - **Silk.NET** - .NET wrapper for Vulkan, OpenGL, and other native APIs
 - **Vulkan** - Low-level graphics and compute API for high-performance rendering
-- **ASP.NET Core MVC** - Web framework for simulation controls and interface
 
 ## Project Structure
 
 - `blackHole/` - Main application source code
-  - `Controllers/` - MVC controllers for web interface
-  - `Models/` - Data models (BlackHole, Dust, SimState, etc.)
-  - `Rendering/` - Vulkan rendering implementation
-  - `Views/` - Web UI views
-  - `wwwroot/` - Static web assets
+  - `Core/` - Core utilities
+    - `Math/` - Mathematical constants and helpers
+  - `Renderer/` - Rendering system
+    - `Vulkan/` - Vulkan-specific rendering code
+  - `Resources/` - Assets, shaders, and textures
+  - `Simulation/` - Simulation logic
+    - `Entities/` - Simulation entities (BlackHole, Dust, SimState, etc.)
+  - `Tools/` - Utility classes (Shapes, Helpers)
+- `Tests/` - Unit tests
 
 ## Building the Project
 
@@ -50,11 +53,3 @@ See [3D_SCENE_TODO.md](3D_SCENE_TODO.md) for the detailed implementation roadmap
 ## Current Status
 
 **In Development** - Currently implementing the Vulkan rendering pipeline for 3D visualization.
-
-## License
-
-[Add your license here]
-
-## Contributors
-
-[Add contributors here]

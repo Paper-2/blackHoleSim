@@ -1,16 +1,35 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
-
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
-
   <ItemGroup>
-  <PackageReference Include="Silk.NET.Windowing" Version="2.21.0" />
-  <PackageReference Include="Silk.NET.Vulkan" Version="2.21.0" />
-  <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.21.0" />
-</ItemGroup>
-
+    <PackageReference Include="Silk.NET.Input" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Shaderc" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Windowing" Version="2.21.0" />
+    <PackageReference Include="Silk.NET.Vulkan" Version="2.21.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.21.0" />
+    <PackageReference Include="StbImageSharp" Version="2.27.14" />
+  </ItemGroup>
+  <!-- Copy GLSL shader source files to output directory for runtime compilation -->
+  <ItemGroup>
+    <None
+      Include="Resources\Shaders\**\*.vert"
+      CopyToOutputDirectory="PreserveNewest"
+      LinkBase="Shaders"
+    />
+    <None
+      Include="Resources\Shaders\**\*.frag"
+      CopyToOutputDirectory="PreserveNewest"
+      LinkBase="Shaders"
+    />
+    <None
+      Include="Resources\Assets\Textures\**\*"
+      CopyToOutputDirectory="PreserveNewest"
+      LinkBase="Textures"
+    />
+  </ItemGroup>
 </Project>

@@ -1,22 +1,55 @@
 {
+    "omnisharp.dotnetPath": "/home/paper/.dotnet/dotnet",
+    "omnisharp.useModernNet": true,
+    "omnisharp.path": "latest",
+    "terminal.integrated.env.linux": {
+        "DOTNET_ROOT": "/home/paper/.dotnet",
+        "PATH": "${env:HOME}/.dotnet:${env:PATH}"
+    },
+
     "cSpell.words": [
         "appsettings",
+        "Backface",
+        "blackhole",
+        "Dont",
+        "enduml",
+        "fract",
+        "framebuffers",
         "GLSL",
         "glslc",
         "Grav",
         "HSTS",
         "jquery",
         "Kutta",
+        "libvulkan",
+        "MSAA",
+        "Multisample",
+        "Multisampling",
+        "rasterizer",
         "Runge",
         "Schwarzschild",
+        "Sfloat",
         "shaderc",
+        "skybox",
+        "smoothstep",
         "SPIR",
         "SPIRV",
         "Srgb",
+        "starmap",
+        "startuml",
+        "Subpass",
+        "subpasses",
         "Subresource",
         "Swapchain",
         "Swapchains",
         "Verlet",
-        "wwwroot"
-    ]
+        "verts",
+        "Viewports",
+        "vorth",
+        "vorths",
+        "WASD",
+        "wwwroot",
+        "xyww"
+    ],
+    "todo-tree.tree.showBadges": true
 }
