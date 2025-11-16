@@ -46,9 +46,6 @@ dotnet build
 dotnet run --project blackHole
 ```
 
-## Development Roadmap
-
-See [3D_SCENE_TODO.md](3D_SCENE_TODO.md) for the detailed implementation roadmap for the 3D rendering system.
 
 ## Current Status
 
