@@ -47,7 +47,7 @@ public unsafe class RenderWorker : IDisposable
     private Image[] _swapchainImages = Array.Empty<Image>();
     private ImageView[] _swapchainImageViews = Array.Empty<ImageView>();
     private Framebuffer[] _framebuffers = Array.Empty<Framebuffer>();
-    
+
     // Depth buffer
     private Image _depthImage;
     private DeviceMemory _depthImageMemory;
@@ -120,7 +120,9 @@ public unsafe class RenderWorker : IDisposable
                 if (frameTimer.ElapsedMilliseconds >= 1000)
                 {
                     double fps = frameCount / frameTimer.Elapsed.TotalSeconds;
-                    Console.WriteLine($"FPS: {fps:F2} | Frame: {_currentFrame} | Size: {_width}x{_height}");
+                    Console.WriteLine(
+                        $"FPS: {fps:F2} | Frame: {_currentFrame} | Size: {_width}x{_height}"
+                    );
                     frameCount = 0;
                     frameTimer.Restart();
                 }
@@ -166,7 +168,7 @@ public unsafe class RenderWorker : IDisposable
             {
                 model = Matrix4X4<float>.Identity,
                 view = update.ViewMatrix,
-                proj = update.ProjectionMatrix
+                proj = update.ProjectionMatrix,
             };
             _dustPipeline.UpdateUniformBuffer(_currentFrame, ubo);
         }
@@ -181,7 +183,7 @@ public unsafe class RenderWorker : IDisposable
                     update.SimState.CentralBlackHole.Position.Z
                 ),
                 view = update.ViewMatrix,
-                proj = update.ProjectionMatrix
+                proj = update.ProjectionMatrix,
             };
             _blackHolePipeline.UpdateUniformBuffer(_currentFrame, ubo);
         }
@@ -192,7 +194,7 @@ public unsafe class RenderWorker : IDisposable
             {
                 model = Matrix4X4<float>.Identity,
                 view = update.ViewMatrix,
-                proj = update.ProjectionMatrix
+                proj = update.ProjectionMatrix,
             };
             _skyboxPipeline.UpdateUniformBuffer(_currentFrame, ubo);
         }
@@ -242,7 +244,7 @@ public unsafe class RenderWorker : IDisposable
 
         if (_blackHolePipeline != null && _framebuffers.Length > imageIndex)
         {
-            ClearValue[] clearValues = 
+            ClearValue[] clearValues =
             {
                 new ClearValue
                 {
@@ -256,11 +258,7 @@ public unsafe class RenderWorker : IDisposable
                 },
                 new ClearValue
                 {
-                    DepthStencil = new ClearDepthStencilValue
-                    {
-                        Depth = 1.0f,
-                        Stencil = 0,
-                    },
+                    DepthStencil = new ClearDepthStencilValue { Depth = 1.0f, Stencil = 0 },
                 },
             };
 
@@ -376,7 +374,10 @@ public unsafe class RenderWorker : IDisposable
 
         fixed (CommandBuffer* commandBuffersPtr = _commandBuffers)
         {
-            if (_vk!.AllocateCommandBuffers(_device, &allocInfo, commandBuffersPtr) != Result.Success)
+            if (
+                _vk!.AllocateCommandBuffers(_device, &allocInfo, commandBuffersPtr)
+                != Result.Success
+            )
             {
                 throw new Exception("Failed to allocate command buffers!");
             }
@@ -400,9 +401,20 @@ public unsafe class RenderWorker : IDisposable
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             if (
-                _vk!.CreateSemaphore(_device, &semaphoreInfo, null, out _imageAvailableSemaphores[i]) != Result.Success
-                || _vk.CreateSemaphore(_device, &semaphoreInfo, null, out _renderFinishedSemaphores[i]) != Result.Success
-                || _vk.CreateFence(_device, &fenceInfo, null, out _inFlightFences[i]) != Result.Success
+                _vk!.CreateSemaphore(
+                    _device,
+                    &semaphoreInfo,
+                    null,
+                    out _imageAvailableSemaphores[i]
+                ) != Result.Success
+                || _vk.CreateSemaphore(
+                    _device,
+                    &semaphoreInfo,
+                    null,
+                    out _renderFinishedSemaphores[i]
+                ) != Result.Success
+                || _vk.CreateFence(_device, &fenceInfo, null, out _inFlightFences[i])
+                    != Result.Success
             )
             {
                 throw new Exception($"Failed to create synchronization objects for frame {i}!");
@@ -412,7 +424,12 @@ public unsafe class RenderWorker : IDisposable
 
     private void CreateFramebuffers()
     {
-        if (_blackHolePipeline == null || _swapchainImages.Length == 0 || _width <= 0 || _height <= 0)
+        if (
+            _blackHolePipeline == null
+            || _swapchainImages.Length == 0
+            || _width <= 0
+            || _height <= 0
+        )
             return;
 
         // Create depth image using Vulkan API directly
@@ -444,7 +461,12 @@ public unsafe class RenderWorker : IDisposable
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = Vulkan.FindMemoryType(_vk, _vulkan!.PhysicalDevice, memRequirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit),
+            MemoryTypeIndex = Vulkan.FindMemoryType(
+                _vk,
+                _vulkan!.PhysicalDevice,
+                memRequirements.MemoryTypeBits,
+                MemoryPropertyFlags.DeviceLocalBit
+            ),
         };
 
         if (_vk.AllocateMemory(_device, &allocInfo, null, out _depthImageMemory) != Result.Success)
@@ -471,7 +493,10 @@ public unsafe class RenderWorker : IDisposable
             },
         };
 
-        if (_vk!.CreateImageView(_device, &depthViewInfo, null, out _depthImageView) != Result.Success)
+        if (
+            _vk!.CreateImageView(_device, &depthViewInfo, null, out _depthImageView)
+            != Result.Success
+        )
         {
             throw new Exception("Failed to create depth image view!");
         }
@@ -504,7 +529,10 @@ public unsafe class RenderWorker : IDisposable
                 },
             };
 
-            if (_vk!.CreateImageView(_device, &viewInfo, null, out _swapchainImageViews[i]) != Result.Success)
+            if (
+                _vk!.CreateImageView(_device, &viewInfo, null, out _swapchainImageViews[i])
+                != Result.Success
+            )
             {
                 throw new Exception($"Failed to create image view {i}!");
             }
@@ -523,7 +551,10 @@ public unsafe class RenderWorker : IDisposable
                     Layers = 1,
                 };
 
-                if (_vk.CreateFramebuffer(_device, &framebufferInfo, null, out _framebuffers[i]) != Result.Success)
+                if (
+                    _vk.CreateFramebuffer(_device, &framebufferInfo, null, out _framebuffers[i])
+                    != Result.Success
+                )
                 {
                     throw new Exception($"Failed to create framebuffer {i}!");
                 }
@@ -577,7 +608,12 @@ public unsafe class RenderWorker : IDisposable
             {
                 fixed (CommandBuffer* cmdPtr = _commandBuffers)
                 {
-                    _vk.FreeCommandBuffers(_device, _commandPool, (uint)_commandBuffers.Length, cmdPtr);
+                    _vk.FreeCommandBuffers(
+                        _device,
+                        _commandPool,
+                        (uint)_commandBuffers.Length,
+                        cmdPtr
+                    );
                 }
             }
 
@@ -590,12 +626,15 @@ public unsafe class RenderWorker : IDisposable
 
 // Command patterns for render thread communication
 public abstract record RenderCommand;
+
 public record StopCommand() : RenderCommand;
+
 public record UpdateSimulationDataCommand(
     SimState SimState,
     Matrix4X4<float> ViewMatrix,
     Matrix4X4<float> ProjectionMatrix
 ) : RenderCommand;
+
 public record SetPipelineDataCommand(
     DustPipeline DustPipeline,
     BlackHolePipeline BlackHolePipeline,
@@ -603,6 +642,3 @@ public record SetPipelineDataCommand(
 ) : RenderCommand;
 
 public record UpdateDustVerticesCommand(Vertex[] Vertices) : RenderCommand;
-
-
-

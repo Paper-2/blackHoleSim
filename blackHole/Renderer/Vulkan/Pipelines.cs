@@ -3,9 +3,9 @@ namespace blackHole.Renderer.Vulkan;
 using System.IO;
 using System.Runtime.InteropServices;
 using Silk.NET.Core;
+using Silk.NET.Maths;
 using Silk.NET.Shaderc;
 using Silk.NET.Vulkan;
-using Silk.NET.Maths;
 
 public abstract unsafe class PipelineBuilder : IDisposable
 {
@@ -73,7 +73,9 @@ public abstract unsafe class PipelineBuilder : IDisposable
             return relativePath;
 
         // If nothing works, return original and let it fail with a clear error
-        throw new FileNotFoundException($"Shader not found. Tried paths: '{shaderPath}', '{withoutPrefix}', '{relativePath}'");
+        throw new FileNotFoundException(
+            $"Shader not found. Tried paths: '{shaderPath}', '{withoutPrefix}', '{relativePath}'"
+        );
     }
 
     public virtual void CreateGraphicsPipeline(string vertShader, string fragShader)
@@ -81,7 +83,7 @@ public abstract unsafe class PipelineBuilder : IDisposable
         // Load shaders with fallback paths
         string vertPath = FindShaderPath(vertShader);
         string fragPath = FindShaderPath(fragShader);
-        
+
         ShaderModule vertShaderModule = _vulkan.CompileShader(
             File.ReadAllText(vertPath),
             ShaderKind.VertexShader,
@@ -185,10 +187,10 @@ public abstract unsafe class PipelineBuilder : IDisposable
             MaxDepth = 1.0f,
         };
 
-        Rect2D scissor = new() 
-        { 
-            Offset = { X = 0, Y = 0 }, 
-            Extent = new Extent2D(viewportWidth, viewportHeight)
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = new Extent2D(viewportWidth, viewportHeight),
         };
 
         PipelineViewportStateCreateInfo viewportState = new()
@@ -303,10 +305,15 @@ public abstract unsafe class PipelineBuilder : IDisposable
         {
             SrcSubpass = Vk.SubpassExternal,
             DstSubpass = 0,
-            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.EarlyFragmentTestsBit,
+            SrcStageMask =
+                PipelineStageFlags.ColorAttachmentOutputBit
+                | PipelineStageFlags.EarlyFragmentTestsBit,
             SrcAccessMask = 0,
-            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.EarlyFragmentTestsBit,
-            DstAccessMask = AccessFlags.ColorAttachmentWriteBit | AccessFlags.DepthStencilAttachmentWriteBit,
+            DstStageMask =
+                PipelineStageFlags.ColorAttachmentOutputBit
+                | PipelineStageFlags.EarlyFragmentTestsBit,
+            DstAccessMask =
+                AccessFlags.ColorAttachmentWriteBit | AccessFlags.DepthStencilAttachmentWriteBit,
         };
 
         fixed (AttachmentDescription* pAttachments = attachments)
@@ -322,7 +329,10 @@ public abstract unsafe class PipelineBuilder : IDisposable
                 PDependencies = &dependency,
             };
 
-            if (_vk.CreateRenderPass(_device, &renderPassInfo, null, out _renderPass) != Result.Success)
+            if (
+                _vk.CreateRenderPass(_device, &renderPassInfo, null, out _renderPass)
+                != Result.Success
+            )
             {
                 throw new Exception("Failed to create render pass!");
             }

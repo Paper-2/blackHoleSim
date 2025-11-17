@@ -22,7 +22,9 @@ public class MathHelpers
             Vector3D<float> direction = Vector3D.Normalize(directionToCenter);
             float orbitalSpeed = (float)Sqrt(centerMass / distance);
 
-            Vector3D<float> tangentDirection = Vector3D.Normalize(new Vector3D<float>(-direction.Z, 0, direction.X));
+            Vector3D<float> tangentDirection = Vector3D.Normalize(
+                new Vector3D<float>(-direction.Z, 0, direction.X)
+            );
             TangentialVelocity = tangentDirection * orbitalSpeed;
         }
 

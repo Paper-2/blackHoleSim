@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
-using Silk.NET.Maths;
-using Silk.NET.Vulkan;
 using blackHole.Renderer.Vulkan;
 using blackHole.Tools;
+using Silk.NET.Maths;
+using Silk.NET.Vulkan;
 
 namespace blackHole.Simulation.Entities;
 
@@ -46,7 +46,8 @@ public unsafe class SkyboxPipeline : PipelineBuilder
     protected override bool EnableDepthWrite => false;
     protected override CompareOp DepthCompareOp => CompareOp.LessOrEqual;
 
-    public SkyboxPipeline(Vulkan vulkan) : base(vulkan)
+    public SkyboxPipeline(Vulkan vulkan)
+        : base(vulkan)
     {
         uniformBuffers = new Silk.NET.Vulkan.Buffer[MAX_FRAMES_IN_FLIGHT];
         uniformBuffersMemory = new DeviceMemory[MAX_FRAMES_IN_FLIGHT];
@@ -74,7 +75,7 @@ public unsafe class SkyboxPipeline : PipelineBuilder
                 Position = new System.Numerics.Vector3(pos.X, pos.Y, pos.Z),
                 Normal = new System.Numerics.Vector3(normal.X, normal.Y, normal.Z),
                 Color = new System.Numerics.Vector3(1.0f, 1.0f, 1.0f),
-                TexCoord = new System.Numerics.Vector2(uv.X, uv.Y)
+                TexCoord = new System.Numerics.Vector2(uv.X, uv.Y),
             };
         }
 
@@ -203,9 +204,19 @@ public unsafe class SkyboxPipeline : PipelineBuilder
             ref textureMemory
         );
 
-        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+        TransitionImageLayout(
+            textureImage,
+            Format.R8G8B8A8Srgb,
+            ImageLayout.Undefined,
+            ImageLayout.TransferDstOptimal
+        );
         CopyBufferToImage(stagingBuffer, textureImage, width, height);
-        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+        TransitionImageLayout(
+            textureImage,
+            Format.R8G8B8A8Srgb,
+            ImageLayout.TransferDstOptimal,
+            ImageLayout.ShaderReadOnlyOptimal
+        );
 
         _vk.DestroyBuffer(_device, stagingBuffer, null);
         _vk.FreeMemory(_device, stagingBufferMemory, null);
@@ -236,7 +247,7 @@ public unsafe class SkyboxPipeline : PipelineBuilder
                 DescriptorType = DescriptorType.CombinedImageSampler,
                 DescriptorCount = 1,
                 StageFlags = ShaderStageFlags.FragmentBit,
-            }
+            },
         };
 
         fixed (DescriptorSetLayoutBinding* bindingsPtr = bindings)
@@ -248,7 +259,10 @@ public unsafe class SkyboxPipeline : PipelineBuilder
                 PBindings = bindingsPtr,
             };
 
-            if (_vk.CreateDescriptorSetLayout(_device, &layoutInfo, null, out descriptorSetLayout) != Result.Success)
+            if (
+                _vk.CreateDescriptorSetLayout(_device, &layoutInfo, null, out descriptorSetLayout)
+                != Result.Success
+            )
             {
                 throw new Exception("Failed to create descriptor set layout!");
             }
@@ -259,8 +273,16 @@ public unsafe class SkyboxPipeline : PipelineBuilder
     {
         DescriptorPoolSize[] poolSizes =
         {
-            new DescriptorPoolSize { Type = DescriptorType.UniformBuffer, DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT },
-            new DescriptorPoolSize { Type = DescriptorType.CombinedImageSampler, DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT }
+            new DescriptorPoolSize
+            {
+                Type = DescriptorType.UniformBuffer,
+                DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT,
+            },
+            new DescriptorPoolSize
+            {
+                Type = DescriptorType.CombinedImageSampler,
+                DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT,
+            },
         };
 
         DescriptorPoolCreateInfo poolInfo = new()
@@ -273,7 +295,10 @@ public unsafe class SkyboxPipeline : PipelineBuilder
         fixed (DescriptorPoolSize* poolSizesPtr = poolSizes)
         {
             poolInfo.PPoolSizes = poolSizesPtr;
-            if (_vk.CreateDescriptorPool(_device, &poolInfo, null, out descriptorPool) != Result.Success)
+            if (
+                _vk.CreateDescriptorPool(_device, &poolInfo, null, out descriptorPool)
+                != Result.Success
+            )
             {
                 throw new Exception("Failed to create descriptor pool!");
             }
@@ -335,10 +360,16 @@ public unsafe class SkyboxPipeline : PipelineBuilder
                         DescriptorCount = 1,
                         DescriptorType = DescriptorType.CombinedImageSampler,
                         PImageInfo = &imageInfo,
-                    }
+                    },
                 };
 
-                _vk.UpdateDescriptorSets(_device, (uint)descriptorWrites.Length, descriptorWrites, 0, ReadOnlySpan<CopyDescriptorSet>.Empty);
+                _vk.UpdateDescriptorSets(
+                    _device,
+                    (uint)descriptorWrites.Length,
+                    descriptorWrites,
+                    0,
+                    ReadOnlySpan<CopyDescriptorSet>.Empty
+                );
             }
         }
     }
@@ -356,7 +387,16 @@ public unsafe class SkyboxPipeline : PipelineBuilder
         _vk.CmdBindIndexBuffer(commandBuffer, indexBuffer, 0, IndexType.Uint32);
 
         var set = descriptorSets[imageIndex];
-        _vk.CmdBindDescriptorSets(commandBuffer, PipelineBindPoint.Graphics, _pipelineLayout, 0, 1, &set, 0, null);
+        _vk.CmdBindDescriptorSets(
+            commandBuffer,
+            PipelineBindPoint.Graphics,
+            _pipelineLayout,
+            0,
+            1,
+            &set,
+            0,
+            null
+        );
 
         if (sphere != null)
         {
@@ -377,7 +417,14 @@ public unsafe class SkyboxPipeline : PipelineBuilder
     public override void UpdateUniformBuffer(int currentImage, UniformBufferObject ubo)
     {
         void* data;
-        _vk.MapMemory(_device, uniformBuffersMemory[currentImage], 0, (ulong)sizeof(UniformBufferObject), 0, &data);
+        _vk.MapMemory(
+            _device,
+            uniformBuffersMemory[currentImage],
+            0,
+            (ulong)sizeof(UniformBufferObject),
+            0,
+            &data
+        );
         new Span<UniformBufferObject>(data, 1)[0] = ubo;
         _vk.UnmapMemory(_device, uniformBuffersMemory[currentImage]);
     }
@@ -404,7 +451,7 @@ public unsafe class SkyboxPipeline : PipelineBuilder
                     _vk.DestroyBuffer(_device, uniformBuffers[i], null);
             }
         }
-        
+
         if (uniformBuffersMemory != null)
         {
             for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -430,5 +477,3 @@ public unsafe class SkyboxPipeline : PipelineBuilder
         CleanupResources();
     }
 }
-
-

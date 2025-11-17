@@ -25,7 +25,7 @@ public class Dust
     public static readonly float DustSize = 0.1f; // Example size
 
     public Vertex VertexData;
-    
+
     // Black hole gravity parameters
     private Vector3D<float> _blackHolePosition = Vector3D<float>.Zero;
     private float _blackHoleMass = 0f;
@@ -37,7 +37,12 @@ public class Dust
         Velocity = Vector3D<float>.Zero;
     }
 
-    public Dust(Vector3D<float> position, Vector3D<float> velocity, Vector3D<float> blackHolePosition, float blackHoleMass)
+    public Dust(
+        Vector3D<float> position,
+        Vector3D<float> velocity,
+        Vector3D<float> blackHolePosition,
+        float blackHoleMass
+    )
     {
         Id = Guid.NewGuid();
         Position = position;
@@ -68,18 +73,18 @@ public class Dust
         // Calculate gravitational acceleration towards the black hole
         Vector3D<float> toBlackHole = _blackHolePosition - Position;
         float distance = toBlackHole.Length;
-        
+
         if (distance > 0.1f) // Avoid division by zero and singularity
         {
             Vector3D<float> direction = Vector3D.Normalize(toBlackHole);
             // F = GMm/r^2, but we use a = GM/r^2 (simplified with G=1)
             float accelerationMagnitude = _blackHoleMass / (distance * distance);
             Vector3D<float> acceleration = direction * accelerationMagnitude;
-            
+
             // Update velocity with acceleration
             Velocity += acceleration * (float)deltaTime;
         }
-        
+
         // Update position
         Position += Velocity * (float)deltaTime;
 
@@ -141,7 +146,9 @@ public class Dust
                     1f
                 );
 
-                concurrentBag.Add(new Dust(position, velocity, Vector3D<float>.Zero, blackHoleMass));
+                concurrentBag.Add(
+                    new Dust(position, velocity, Vector3D<float>.Zero, blackHoleMass)
+                );
             }
         );
         dustList.AddRange(concurrentBag);
@@ -166,7 +173,8 @@ public unsafe class DustPipeline : PipelineBuilder
     protected override PrimitiveTopology Topology => PrimitiveTopology.PointList;
     protected override CullModeFlags CullMode => CullModeFlags.None;
 
-    public DustPipeline(Vulkan vulkan) : base(vulkan)
+    public DustPipeline(Vulkan vulkan)
+        : base(vulkan)
     {
         vertexBuffers = new Silk.NET.Vulkan.Buffer[MAX_FRAMES_IN_FLIGHT];
         vertexBufferMemories = new DeviceMemory[MAX_FRAMES_IN_FLIGHT];
@@ -264,9 +272,19 @@ public unsafe class DustPipeline : PipelineBuilder
             ref textureMemory
         );
 
-        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+        TransitionImageLayout(
+            textureImage,
+            Format.R8G8B8A8Srgb,
+            ImageLayout.Undefined,
+            ImageLayout.TransferDstOptimal
+        );
         CopyBufferToImage(stagingBuffer, textureImage, width, height);
-        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+        TransitionImageLayout(
+            textureImage,
+            Format.R8G8B8A8Srgb,
+            ImageLayout.TransferDstOptimal,
+            ImageLayout.ShaderReadOnlyOptimal
+        );
 
         _vk.DestroyBuffer(_device, stagingBuffer, null);
         _vk.FreeMemory(_device, stagingBufferMemory, null);
@@ -297,7 +315,7 @@ public unsafe class DustPipeline : PipelineBuilder
                 DescriptorType = DescriptorType.CombinedImageSampler,
                 DescriptorCount = 1,
                 StageFlags = ShaderStageFlags.FragmentBit,
-            }
+            },
         };
 
         fixed (DescriptorSetLayoutBinding* bindingsPtr = bindings)
@@ -309,7 +327,10 @@ public unsafe class DustPipeline : PipelineBuilder
                 PBindings = bindingsPtr,
             };
 
-            if (_vk.CreateDescriptorSetLayout(_device, &layoutInfo, null, out descriptorSetLayout) != Result.Success)
+            if (
+                _vk.CreateDescriptorSetLayout(_device, &layoutInfo, null, out descriptorSetLayout)
+                != Result.Success
+            )
             {
                 throw new Exception("Failed to create descriptor set layout!");
             }
@@ -320,8 +341,16 @@ public unsafe class DustPipeline : PipelineBuilder
     {
         DescriptorPoolSize[] poolSizes =
         {
-            new DescriptorPoolSize { Type = DescriptorType.UniformBuffer, DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT },
-            new DescriptorPoolSize { Type = DescriptorType.CombinedImageSampler, DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT }
+            new DescriptorPoolSize
+            {
+                Type = DescriptorType.UniformBuffer,
+                DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT,
+            },
+            new DescriptorPoolSize
+            {
+                Type = DescriptorType.CombinedImageSampler,
+                DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT,
+            },
         };
 
         DescriptorPoolCreateInfo poolInfo = new()
@@ -334,7 +363,10 @@ public unsafe class DustPipeline : PipelineBuilder
         fixed (DescriptorPoolSize* poolSizesPtr = poolSizes)
         {
             poolInfo.PPoolSizes = poolSizesPtr;
-            if (_vk.CreateDescriptorPool(_device, &poolInfo, null, out descriptorPool) != Result.Success)
+            if (
+                _vk.CreateDescriptorPool(_device, &poolInfo, null, out descriptorPool)
+                != Result.Success
+            )
             {
                 throw new Exception("Failed to create descriptor pool!");
             }
@@ -396,10 +428,16 @@ public unsafe class DustPipeline : PipelineBuilder
                         DescriptorCount = 1,
                         DescriptorType = DescriptorType.CombinedImageSampler,
                         PImageInfo = &imageInfo,
-                    }
+                    },
                 };
 
-                _vk.UpdateDescriptorSets(_device, (uint)descriptorWrites.Length, descriptorWrites, 0, ReadOnlySpan<CopyDescriptorSet>.Empty);
+                _vk.UpdateDescriptorSets(
+                    _device,
+                    (uint)descriptorWrites.Length,
+                    descriptorWrites,
+                    0,
+                    ReadOnlySpan<CopyDescriptorSet>.Empty
+                );
             }
         }
     }
@@ -419,7 +457,16 @@ public unsafe class DustPipeline : PipelineBuilder
 
         fixed (DescriptorSet* setPtr = descriptorSets)
         {
-            _vk.CmdBindDescriptorSets(commandBuffer, PipelineBindPoint.Graphics, _pipelineLayout, 0, 1, &setPtr[imageIndex], 0, null);
+            _vk.CmdBindDescriptorSets(
+                commandBuffer,
+                PipelineBindPoint.Graphics,
+                _pipelineLayout,
+                0,
+                1,
+                &setPtr[imageIndex],
+                0,
+                null
+            );
         }
 
         _vk.CmdDraw(commandBuffer, (uint)_vertexData.Length, 1, 0, 0);
@@ -434,7 +481,9 @@ public unsafe class DustPipeline : PipelineBuilder
     {
         if (_vertexData == null || vertices.Length != _vertexData.Length)
         {
-            throw new ArgumentException($"Vertex count mismatch: expected {_vertexData?.Length ?? 0}, got {vertices.Length}");
+            throw new ArgumentException(
+                $"Vertex count mismatch: expected {_vertexData?.Length ?? 0}, got {vertices.Length}"
+            );
         }
 
         ulong bufferSize = (ulong)(vertices.Length * sizeof(Vertex));
@@ -442,7 +491,10 @@ public unsafe class DustPipeline : PipelineBuilder
         // Map memory and copy new data ONLY for this frame's buffer
         // Since we use HostCoherent memory, changes are automatically visible to GPU
         void* data;
-        if (_vk.MapMemory(_device, vertexBufferMemories[frameIndex], 0, bufferSize, 0, &data) == Result.Success)
+        if (
+            _vk.MapMemory(_device, vertexBufferMemories[frameIndex], 0, bufferSize, 0, &data)
+            == Result.Success
+        )
         {
             fixed (Vertex* arrayPtr = vertices)
             {
@@ -456,7 +508,7 @@ public unsafe class DustPipeline : PipelineBuilder
     {
         if (NewVertexData is not Vertex[] vertices)
             throw new ArgumentException("NewVertexData must be Vertex[]");
-            
+
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             UpdateVertexBuffer(vertices, i);
@@ -466,7 +518,14 @@ public unsafe class DustPipeline : PipelineBuilder
     public override void UpdateUniformBuffer(int currentImage, UniformBufferObject ubo)
     {
         void* data;
-        _vk.MapMemory(_device, uniformBuffersMemory[currentImage], 0, (ulong)sizeof(UniformBufferObject), 0, &data);
+        _vk.MapMemory(
+            _device,
+            uniformBuffersMemory[currentImage],
+            0,
+            (ulong)sizeof(UniformBufferObject),
+            0,
+            &data
+        );
         new Span<UniformBufferObject>(data, 1)[0] = ubo;
         _vk.UnmapMemory(_device, uniformBuffersMemory[currentImage]);
     }
@@ -479,7 +538,7 @@ public unsafe class DustPipeline : PipelineBuilder
         try
         {
             _vk.DeviceWaitIdle(_device);
-            
+
             if (uniformBuffers != null)
             {
                 for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -488,7 +547,7 @@ public unsafe class DustPipeline : PipelineBuilder
                         _vk.DestroyBuffer(_device, uniformBuffers[i], null);
                 }
             }
-            
+
             if (uniformBuffersMemory != null)
             {
                 for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -502,7 +561,7 @@ public unsafe class DustPipeline : PipelineBuilder
                 _vk.DestroyDescriptorPool(_device, descriptorPool, null);
             if (descriptorSetLayout.Handle != 0)
                 _vk.DestroyDescriptorSetLayout(_device, descriptorSetLayout, null);
-            
+
             if (vertexBuffers != null)
             {
                 for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -511,7 +570,7 @@ public unsafe class DustPipeline : PipelineBuilder
                         _vk.DestroyBuffer(_device, vertexBuffers[i], null);
                 }
             }
-            
+
             if (vertexBufferMemories != null)
             {
                 for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -529,5 +588,3 @@ public unsafe class DustPipeline : PipelineBuilder
         }
     }
 }
-
-

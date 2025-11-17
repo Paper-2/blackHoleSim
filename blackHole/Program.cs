@@ -1,6 +1,5 @@
 using blackHole.Renderer.Vulkan;
 
-
 Console.WriteLine("ESC - Exit");
 Console.WriteLine();
 

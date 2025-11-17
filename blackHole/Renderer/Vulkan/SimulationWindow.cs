@@ -93,7 +93,6 @@ public unsafe class SimulationWindow
         _renderWorker.Start(_vulkan);
         _simulationTimer.Start();
 
-
         Console.WriteLine("Controls:");
         Console.WriteLine("Mouse: Look around");
         Console.WriteLine("WASD: Move camera");
@@ -161,7 +160,7 @@ public unsafe class SimulationWindow
     private void InitializeSimulation()
     {
         // Create black hole at center with icosphere
-        _simState.CentralBlackHole.Sols = 4000000; // name doesn't really matter here 
+        _simState.CentralBlackHole.Sols = 4000000; // name doesn't really matter here
         _simState.CentralBlackHole.Position = Vector3D<float>.Zero;
         _simState.CentralBlackHole.SphereModel = new Sphere(4, 200.0f); // Bigger please
 
@@ -170,13 +169,13 @@ public unsafe class SimulationWindow
 
         // Clear auto-generated dust and create orbital configuration using generateDustFieldDisk
         _simState.Dusts.Clear();
-        
+
         // Disk parameters
         const float diskOuterRadius = 1220.0f; // 220 (inner) + 1000 (width)
         const float diskInnerRadius = 220.0f; // 110% of sphere radius (200.0 * 1.1)
         const float diskThickness = 0.1f;
         const int particleCount = 100000;
-        
+
         Dust.generateDustFieldDisk(
             _simState.Dusts,
             particleCount,
@@ -187,8 +186,7 @@ public unsafe class SimulationWindow
         );
     }
 
-
-// I don't know where to put this function logic. Vulkan? Pipeline? Renderer?
+    // I don't know where to put this function logic. Vulkan? Pipeline? Renderer?
     private void InitializePipelines()
     {
         // Create dust pipeline
@@ -210,9 +208,9 @@ public unsafe class SimulationWindow
                     _simState.Dusts[i].Position.Z
                 ),
                 Color = new System.Numerics.Vector3(
-                    1.0f,                      // R: bright red throughout
-                    1.0f - colorT * 0.7f,      // G: 1.0 (inner) -> 0.3 (outer) - yellow to orange
-                    1.0f - colorT * 1.0f       // B: 1.0 (inner) -> 0.0 (outer) - white to red
+                    1.0f, // R: bright red throughout
+                    1.0f - colorT * 0.7f, // G: 1.0 (inner) -> 0.3 (outer) - yellow to orange
+                    1.0f - colorT * 1.0f // B: 1.0 (inner) -> 0.0 (outer) - white to red
                 ),
                 Normal = new System.Numerics.Vector3(0, 1, 0),
                 TexCoord = new System.Numerics.Vector2(0, 0),
@@ -305,9 +303,9 @@ public unsafe class SimulationWindow
                             _simState.Dusts[i].Position.Z
                         ),
                         Color = new System.Numerics.Vector3(
-                            1.0f,                      // R: bright red throughout
-                            1.0f - colorT * 0.7f,      // G: 1.0 (inner) -> 0.3 (outer) - yellow to orange
-                            1.0f - colorT * 1.0f       // B: 1.0 (inner) -> 0.0 (outer) - white to red
+                            1.0f, // R: bright red throughout
+                            1.0f - colorT * 0.7f, // G: 1.0 (inner) -> 0.3 (outer) - yellow to orange
+                            1.0f - colorT * 1.0f // B: 1.0 (inner) -> 0.0 (outer) - white to red
                         ),
                         Normal = new System.Numerics.Vector3(0, 1, 0),
                         TexCoord = new System.Numerics.Vector2(0, 0),

@@ -1,9 +1,8 @@
-using Silk.NET.Maths;
-using System.Runtime.InteropServices;
 using System.Numerics;
+using System.Runtime.InteropServices;
+using Silk.NET.Maths;
 
 namespace blackHole.Tools;
-
 
 [StructLayout(LayoutKind.Sequential)]
 public struct Vertex
@@ -169,10 +168,11 @@ public static class Shapes
     /// </summary>
     /// <param name="subdivisions">Number of recursive subdivisions (0-5 recommended).</param>
     /// <returns>A tuple containing (vertices, indices, uvs).</returns>
-    public static (List<Vector3D<float>> vertices, List<uint> indices, List<Vector2D<float>> uvs) GenerateIcoSphere(
-        int subdivisions = 2,
-        bool insideOut = false
-    )
+    public static (
+        List<Vector3D<float>> vertices,
+        List<uint> indices,
+        List<Vector2D<float>> uvs
+    ) GenerateIcoSphere(int subdivisions = 2, bool insideOut = false)
     {
         // Start with octahedron vertices
         List<Vector3D<float>> vertices = new List<Vector3D<float>>
@@ -197,14 +197,94 @@ public static class Shapes
         }
 
         // Define octahedron faces (as triangles using indices)
-        SubdivideTriangleIndexedWithUV(0, 2, 4, subdivisions, vertices, indices, vertexCache, uvs, insideOut);
-        SubdivideTriangleIndexedWithUV(0, 4, 3, subdivisions, vertices, indices, vertexCache, uvs, insideOut);
-        SubdivideTriangleIndexedWithUV(0, 3, 5, subdivisions, vertices, indices, vertexCache, uvs, insideOut);
-        SubdivideTriangleIndexedWithUV(0, 5, 2, subdivisions, vertices, indices, vertexCache, uvs, insideOut);
-        SubdivideTriangleIndexedWithUV(1, 4, 2, subdivisions, vertices, indices, vertexCache, uvs, insideOut);
-        SubdivideTriangleIndexedWithUV(1, 3, 4, subdivisions, vertices, indices, vertexCache, uvs, insideOut);
-        SubdivideTriangleIndexedWithUV(1, 5, 3, subdivisions, vertices, indices, vertexCache, uvs, insideOut);
-        SubdivideTriangleIndexedWithUV(1, 2, 5, subdivisions, vertices, indices, vertexCache, uvs, insideOut);
+        SubdivideTriangleIndexedWithUV(
+            0,
+            2,
+            4,
+            subdivisions,
+            vertices,
+            indices,
+            vertexCache,
+            uvs,
+            insideOut
+        );
+        SubdivideTriangleIndexedWithUV(
+            0,
+            4,
+            3,
+            subdivisions,
+            vertices,
+            indices,
+            vertexCache,
+            uvs,
+            insideOut
+        );
+        SubdivideTriangleIndexedWithUV(
+            0,
+            3,
+            5,
+            subdivisions,
+            vertices,
+            indices,
+            vertexCache,
+            uvs,
+            insideOut
+        );
+        SubdivideTriangleIndexedWithUV(
+            0,
+            5,
+            2,
+            subdivisions,
+            vertices,
+            indices,
+            vertexCache,
+            uvs,
+            insideOut
+        );
+        SubdivideTriangleIndexedWithUV(
+            1,
+            4,
+            2,
+            subdivisions,
+            vertices,
+            indices,
+            vertexCache,
+            uvs,
+            insideOut
+        );
+        SubdivideTriangleIndexedWithUV(
+            1,
+            3,
+            4,
+            subdivisions,
+            vertices,
+            indices,
+            vertexCache,
+            uvs,
+            insideOut
+        );
+        SubdivideTriangleIndexedWithUV(
+            1,
+            5,
+            3,
+            subdivisions,
+            vertices,
+            indices,
+            vertexCache,
+            uvs,
+            insideOut
+        );
+        SubdivideTriangleIndexedWithUV(
+            1,
+            2,
+            5,
+            subdivisions,
+            vertices,
+            indices,
+            vertexCache,
+            uvs,
+            insideOut
+        );
 
         return (vertices, indices, uvs);
     }
@@ -337,5 +417,3 @@ public static class Shapes
         return new Vector2D<float>(u, vCoord);
     }
 }
-
-
