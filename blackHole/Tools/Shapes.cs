@@ -1,6 +1,18 @@
 using Silk.NET.Maths;
+using System.Runtime.InteropServices;
+using System.Numerics;
 
 namespace blackHole.Tools;
+
+
+[StructLayout(LayoutKind.Sequential)]
+public struct Vertex
+{
+    public Vector3 Position;
+    public Vector3 Normal;
+    public Vector3 Color;
+    public Vector2 TexCoord;
+}
 
 /// <summary>
 /// Class use to generate lists vertices for shapes.
@@ -325,3 +337,5 @@ public static class Shapes
         return new Vector2D<float>(u, vCoord);
     }
 }
+
+

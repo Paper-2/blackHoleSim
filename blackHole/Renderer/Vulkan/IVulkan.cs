@@ -2,9 +2,11 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Silk.NET.Core;
 using Silk.NET.Maths;
+using Silk.NET.Shaderc;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
+using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace blackHole.Renderer.Vulkan;
 
@@ -29,7 +31,15 @@ public interface IVulkan
 
     void createImageViews();
 
-    void createGraphicsPipeline();
+    void CreateBuffer(
+        ulong size,
+        BufferUsageFlags usage,
+        MemoryPropertyFlags properties,
+        ref Buffer buffer,
+        ref DeviceMemory bufferMemory
+    );
+
+    void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size);
 
     void Cleanup();
 
@@ -61,8 +71,8 @@ public unsafe class Vulkan : IVulkan
 
     private Image[] _swapchainImages = Array.Empty<Image>();
     private ImageView[] _swapchainImageViews = Array.Empty<ImageView>();
-    private Extent2D _swapChainExtent;
-    private Format _swapChainImageFormat;
+    public Extent2D _swapChainExtent;
+    public Format _swapChainImageFormat;
     private PipelineLayout _pipelineLayout;
     private RenderPass _renderPass;
     private Pipeline _graphicsPipeline;
@@ -255,6 +265,10 @@ public unsafe class Vulkan : IVulkan
         )
             throw new Exception("Failed to create swapchain!");
 
+        // Store swapchain properties
+        _swapChainExtent = createInfoKHR.ImageExtent;
+        _swapChainImageFormat = createInfoKHR.ImageFormat;
+
         // Get swapchain images
         InitializeSwapchainImages();
 
@@ -311,7 +325,7 @@ public unsafe class Vulkan : IVulkan
     {
         _renderWorker = renderWorker;
 
-        // Start render worker with Vulkan resources
+        // Start the render worker with Vulkan context
         if (_renderWorker != null && _vk != null)
         {
             _renderWorker.Start(this);
@@ -593,9 +607,177 @@ public unsafe class Vulkan : IVulkan
         }
     }
 
-    public void createGraphicsPipeline()
+    public void CreateBuffer(
+        ulong size,
+        BufferUsageFlags usage,
+        MemoryPropertyFlags properties,
+        ref Buffer buffer,
+        ref DeviceMemory bufferMemory
+    )
     {
-        Pipelines pipelines = new Pipelines(_vk!, _device, _swapChainExtent, _swapChainImageFormat);
-        pipelines.CreateGraphicsPipeline("shaders/shader.vert", "shaders/shader.frag");
+        // Struct that describes the buffer to be created
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = size,
+            Usage = usage,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        fixed (Buffer* bufferPtr = &buffer)
+        {
+            if (_vk!.CreateBuffer(_device, &bufferInfo, null, bufferPtr) != Result.Success)
+                throw new Exception("Failed to create skybox buffer!");
+        }
+
+        // This sections gets the memory requirements for the buffer we just created
+        MemoryRequirements memRequirements;
+        _vk!.GetBufferMemoryRequirements(_device, buffer, out memRequirements);
+
+        /// Struct that describes the memory allocation for the buffer
+        uint memoryTypeIndex = Vulkan.FindMemoryType(
+            _vk,
+            _physicalDevice,
+            memRequirements.MemoryTypeBits,
+            properties
+        );
+
+        var allocInfo = new MemoryAllocateInfo
+        {
+            SType = StructureType.MemoryAllocateInfo,
+            AllocationSize = memRequirements.Size,
+            MemoryTypeIndex = memoryTypeIndex,
+        };
+
+        // Finally allocate the memory for the buffer
+        fixed (DeviceMemory* memoryPtr = &bufferMemory)
+        {
+            if (_vk.AllocateMemory(_device, &allocInfo, null, memoryPtr) != Result.Success)
+                throw new Exception("Failed to allocate skybox buffer memory!");
+        }
+
+        // connect the allocated memory to the buffer
+        _vk.BindBufferMemory(_device, buffer, bufferMemory, 0);
+    }
+
+    public unsafe ShaderModule CompileShader(
+        string shaderCode,
+        ShaderKind shaderKind,
+        string fileName
+    )
+    {
+        var api = Shaderc.GetApi();
+        var compiler = api.CompilerInitialize();
+        var options = api.CompileOptionsInitialize();
+
+        api.CompileOptionsSetOptimizationLevel(options, OptimizationLevel.Performance);
+
+        byte[] sourceBytes = System.Text.Encoding.UTF8.GetBytes(shaderCode);
+        byte[] fileNameBytes = System.Text.Encoding.UTF8.GetBytes(fileName + "\0");
+        byte[] entryPointBytes = System.Text.Encoding.UTF8.GetBytes("main\0");
+
+        fixed (byte* sourceBytesPtr = sourceBytes)
+        fixed (byte* fileNameBytesPtr = fileNameBytes)
+        fixed (byte* entryPointBytesPtr = entryPointBytes)
+        {
+            var result = api.CompileIntoSpv(
+                compiler,
+                sourceBytesPtr,
+                (nuint)sourceBytes.Length,
+                shaderKind,
+                fileNameBytesPtr,
+                entryPointBytesPtr,
+                options
+            );
+
+            var status = api.ResultGetCompilationStatus(result);
+            if (status != CompilationStatus.Success)
+            {
+                var errorMessage = api.ResultGetErrorMessageS(result);
+                api.ResultRelease(result);
+                api.CompileOptionsRelease(options);
+                api.CompilerRelease(compiler);
+                throw new Exception($"Shader compilation failed for {fileName}: {errorMessage}");
+            }
+
+            var length = api.ResultGetLength(result);
+            var bytesPtr = api.ResultGetBytes(result);
+
+            byte[] spirv = new byte[length];
+            new Span<byte>(bytesPtr, (int)length).CopyTo(spirv);
+
+            api.ResultRelease(result);
+            api.CompileOptionsRelease(options);
+            api.CompilerRelease(compiler);
+
+            var createInfo = new ShaderModuleCreateInfo
+            {
+                SType = StructureType.ShaderModuleCreateInfo,
+                CodeSize = (nuint)spirv.Length,
+            };
+
+            ShaderModule shaderModule;
+            fixed (byte* codePtr = spirv)
+            {
+                createInfo.PCode = (uint*)codePtr;
+                if (
+                    _vk!.CreateShaderModule(_device, &createInfo, null, &shaderModule)
+                    != Result.Success
+                )
+                    throw new Exception("Failed to create shader module!");
+            }
+
+            return shaderModule;
+        }
+    }
+
+    public void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size)
+    {
+        CommandPool commandPool = CreateCommandPool();
+
+        CommandBufferAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.CommandBufferAllocateInfo,
+            Level = CommandBufferLevel.Primary,
+            CommandPool = commandPool,
+            CommandBufferCount = 1,
+        };
+
+        CommandBuffer commandBuffer;
+
+        if (_vk!.AllocateCommandBuffers(_device, &allocInfo, &commandBuffer) != Result.Success)
+            throw new Exception("Failed to allocate command buffer!");
+
+        CommandBufferBeginInfo beginInfo = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+            Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
+        };
+
+        _vk!.BeginCommandBuffer(commandBuffer, &beginInfo);
+
+        BufferCopy copyRegion = new()
+        {
+            SrcOffset = 0,
+            DstOffset = 0,
+            Size = size,
+        };
+
+        _vk.CmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+        _vk.EndCommandBuffer(commandBuffer);
+
+        SubmitInfo submitInfo = new()
+        {
+            SType = StructureType.SubmitInfo,
+            CommandBufferCount = 1,
+            PCommandBuffers = &commandBuffer,
+        };
+
+        _vk.QueueSubmit(_graphicsQueue, 1, &submitInfo, default);
+        _vk.QueueWaitIdle(_graphicsQueue);
+
+        _vk.FreeCommandBuffers(_device, commandPool, 1, &commandBuffer);
+        _vk.DestroyCommandPool(_device, commandPool, null);
     }
 }

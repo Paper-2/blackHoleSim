@@ -1,12 +1,21 @@
 using blackHole.Renderer.Vulkan;
 
-Console.WriteLine("Starting Black Hole Simulation...");
 
-// Create and initialize the simulation window
-var simWindow = new SimulationWindow();
-simWindow.Initialize();
+Console.WriteLine("ESC - Exit");
+Console.WriteLine();
 
-// Run the simulation
-simWindow.Run();
+try
+{
+    var window = new SimulationWindow();
+    window.Initialize();
+    window.Run();
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"ERROR: {ex.Message}");
+    Console.WriteLine(ex.StackTrace);
+    return 1;
+}
 
 Console.WriteLine("Simulation ended.");
+return 0;

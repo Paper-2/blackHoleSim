@@ -1,5 +1,9 @@
+using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using blackHole.Simulation.Entities;
+using blackHole.Tools;
+using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
@@ -11,71 +15,62 @@ public unsafe class RenderWorker : IDisposable
     // Thread management
     private Thread? _renderThread;
     private volatile bool _isRunning;
-    private readonly ManualResetEventSlim _renderSignal = new(false);
-
-    // Message queue for commands from main thread
     private readonly BlockingCollection<RenderCommand> _commandQueue = new();
 
-    // Vulkan resources (moved from SimulationWindow)
-    private Vulkan? _vulkan; // Made by SimulationWindow
+    // Vulkan resources
+    private Vulkan? _vulkan;
     private Vk? _vk;
-    private Instance _instance;
     private Device _device;
     private Queue _graphicsQueue;
     private SwapchainKHR _swapchain;
-    private uint _graphicsQueueFamily;
     private KhrSwapchain? _khrSwapchain;
-    private SurfaceKHR _surface;
 
-    private CommandPool _commandPool; // Owned by this thread!
-    private CommandBuffer[]? _commandBuffers; // Per-frame
+    private CommandPool _commandPool;
+    private CommandBuffer[]? _commandBuffers;
 
-    // Synchronization primitives (critical for multi-frame)
+    // Synchronization primitives
     private Semaphore[]? _imageAvailableSemaphores;
     private Semaphore[]? _renderFinishedSemaphores;
     private Fence[]? _inFlightFences;
     private int _currentFrame = 0;
     private const int MAX_FRAMES_IN_FLIGHT = 2;
 
-    // Lock for queue operations
     private readonly object _queueLock = new();
+    private Vertex[]? _latestDustVertices;
 
-    // Staging buffer and rendering data
-    private Silk.NET.Vulkan.Buffer _stagingBuffer;
-    private DeviceMemory _stagingBufferMemory;
+    // Rendering pipelines
+    private DustPipeline? _dustPipeline;
+    private BlackHolePipeline? _blackHolePipeline;
+    private SkyboxPipeline? _skyboxPipeline;
+
+    // Framebuffers and image views
     private Image[] _swapchainImages = Array.Empty<Image>();
-    private PhysicalDevice _physicalDevice;
-    private Random _random = new Random();
+    private ImageView[] _swapchainImageViews = Array.Empty<ImageView>();
+    private Framebuffer[] _framebuffers = Array.Empty<Framebuffer>();
+    
+    // Depth buffer
+    private Image _depthImage;
+    private DeviceMemory _depthImageMemory;
+    private ImageView _depthImageView;
+
     private int _width;
     private int _height;
-    private int _frameSkip = 0;
 
-    private StatsConsole? _statsConsole;
-
-    private int _pendingWidth = -1;
-    private int _pendingHeight = -1;
-    private DateTime _lastResizeTime = DateTime.MinValue;
-    private const int RESIZE_DEBOUNCE_MS = 200; // Wait 200ms after last resize
-    private int _lastRecreatedWidth = 0;
-    private int _lastRecreatedHeight = 0;
-
-    private const int RESIZE_THRESHOLD = 50; // Only recreate if size changed by 50+ pixels
+    public int GetCurrentFrame() => _currentFrame;
 
     public void Start(Vulkan vulkan)
     {
         _vulkan = vulkan;
         _vk = vulkan.VkAPI;
-        _instance = vulkan.VulkanInstance;
-        _physicalDevice = vulkan.PhysicalDevice;
         _device = vulkan.Device;
         _graphicsQueue = vulkan.GraphicsQueue;
         _swapchain = vulkan.Swapchain;
-        _graphicsQueueFamily = vulkan.GraphicsQueueFamily;
         _khrSwapchain = vulkan.KhrSwapchain;
-        _width = 1280; // default or from somewhere
-        _height = 720;
 
-        // Get swapchain images 
+        _width = (int)Math.Max(1, vulkan._swapChainExtent.Width);
+        _height = (int)Math.Max(1, vulkan._swapChainExtent.Height);
+
+        // Get swapchain images
         uint imageCount = 0;
         _khrSwapchain!.GetSwapchainImages(_device, _swapchain, &imageCount, null);
         _swapchainImages = new Image[imageCount];
@@ -87,13 +82,7 @@ public unsafe class RenderWorker : IDisposable
         _commandPool = _vulkan!.CreateCommandPool();
         InitializeSyncObjects();
         AllocateCommandBuffers();
-        InitializeStagingBuffer();
 
-        _statsConsole = new StatsConsole();
-        _statsConsole.Start();
-        _statsConsole.WriteLine("Render worker started");
-
-        // Start render thread
         _isRunning = true;
         _renderThread = new Thread(RenderLoop) { IsBackground = true };
         _renderThread.Start();
@@ -116,7 +105,7 @@ public unsafe class RenderWorker : IDisposable
 
     private void RenderLoop()
     {
-        var frameTimer = System.Diagnostics.Stopwatch.StartNew();
+        var frameTimer = Stopwatch.StartNew();
         int frameCount = 0;
 
         try
@@ -131,9 +120,7 @@ public unsafe class RenderWorker : IDisposable
                 if (frameTimer.ElapsedMilliseconds >= 1000)
                 {
                     double fps = frameCount / frameTimer.Elapsed.TotalSeconds;
-                    _statsConsole?.WriteLine(
-                        $"FPS: {fps:F2} | Frame: {_currentFrame} | Size: {_width}x{_height}"
-                    );
+                    Console.WriteLine($"FPS: {fps:F2} | Frame: {_currentFrame} | Size: {_width}x{_height}");
                     frameCount = 0;
                     frameTimer.Restart();
                 }
@@ -141,114 +128,93 @@ public unsafe class RenderWorker : IDisposable
         }
         catch (Exception ex)
         {
-            _statsConsole?.WriteLine($"ERROR: {ex.Message}");
+            Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
             _isRunning = false;
         }
     }
 
     private void ProcessCommands()
     {
-        while (_commandQueue.TryTake(out var command, 0)) // Non-blocking
+        while (_commandQueue.TryTake(out var command, 0))
         {
             switch (command)
             {
-                case ResizeCommand resize:
-                    _pendingWidth = resize.Width;
-                    _pendingHeight = resize.Height;
-                    _lastResizeTime = DateTime.Now;
-
-                    // Recreate immediately if size change is large
-                    int widthDiff = Math.Abs(resize.Width - _lastRecreatedWidth);
-                    int heightDiff = Math.Abs(resize.Height - _lastRecreatedHeight);
-
-                    if (widthDiff > RESIZE_THRESHOLD || heightDiff > RESIZE_THRESHOLD)
-                    {
-                        Vulkan.Instance.RecreateSwapchain((uint)resize.Width, (uint)resize.Height);
-
-                        // Update RenderWorker's state
-                        _width = resize.Width;
-                        _height = resize.Height;
-                        _swapchain = Vulkan.Instance.Swapchain;
-                        _khrSwapchain = Vulkan.Instance.KhrSwapchain;
-
-                // Recreate staging buffer
-                _vk!.DestroyBuffer(_device, _stagingBuffer, null);
-                _vk.FreeMemory(_device, _stagingBufferMemory, null);
-                _stagingBuffer = default;
-                _stagingBufferMemory = default;
-                InitializeStagingBuffer();                        // Update swapchain images
-                        uint imageCount = 0;
-                        _khrSwapchain!.GetSwapchainImages(_device, _swapchain, &imageCount, null);
-                        _swapchainImages = new Image[imageCount];
-                        fixed (Image* imagesPtr = _swapchainImages)
-                        {
-                            _khrSwapchain.GetSwapchainImages(
-                                _device,
-                                _swapchain,
-                                &imageCount,
-                                imagesPtr
-                            );
-                        }
-
-                        _lastRecreatedWidth = resize.Width;
-                        _lastRecreatedHeight = resize.Height;
-                        _pendingWidth = -1;
-                        _pendingHeight = -1;
-                    }
-                    break;
                 case StopCommand:
                     _isRunning = false;
                     break;
-                case UpdateSimulationData update:
-                    // TODO: Update uniform buffers
+                case UpdateSimulationDataCommand update:
+                    UpdatePipelineUniforms(update);
+                    break;
+                case SetPipelineDataCommand setPipeline:
+                    _dustPipeline = setPipeline.DustPipeline;
+                    _blackHolePipeline = setPipeline.BlackHolePipeline;
+                    _skyboxPipeline = setPipeline.SkyboxPipeline;
+                    CreateFramebuffers();
+                    break;
+                case UpdateDustVerticesCommand updateDust:
+                    _latestDustVertices = updateDust.Vertices;
                     break;
             }
         }
+    }
 
-        // Handle debounced resize (final adjustment)
-        if (_pendingWidth > 0 && _pendingHeight > 0)
+    private void UpdatePipelineUniforms(UpdateSimulationDataCommand update)
+    {
+        if (_dustPipeline != null)
         {
-            var timeSinceResize = (DateTime.Now - _lastResizeTime).TotalMilliseconds;
-            if (timeSinceResize >= RESIZE_DEBOUNCE_MS)
+            var ubo = new PipelineBuilder.UniformBufferObject
             {
-                Vulkan.Instance.RecreateSwapchain((uint)_pendingWidth, (uint)_pendingHeight);
+                model = Matrix4X4<float>.Identity,
+                view = update.ViewMatrix,
+                proj = update.ProjectionMatrix
+            };
+            _dustPipeline.UpdateUniformBuffer(_currentFrame, ubo);
+        }
 
-                // Update RenderWorker's state
-                _width = _pendingWidth;
-                _height = _pendingHeight;
-                _swapchain = Vulkan.Instance.Swapchain;
-                _khrSwapchain = Vulkan.Instance.KhrSwapchain;
+        if (_blackHolePipeline != null)
+        {
+            var ubo = new PipelineBuilder.UniformBufferObject
+            {
+                model = Matrix4X4.CreateTranslation(
+                    update.SimState.CentralBlackHole.Position.X,
+                    update.SimState.CentralBlackHole.Position.Y,
+                    update.SimState.CentralBlackHole.Position.Z
+                ),
+                view = update.ViewMatrix,
+                proj = update.ProjectionMatrix
+            };
+            _blackHolePipeline.UpdateUniformBuffer(_currentFrame, ubo);
+        }
 
-                // Recreate staging buffer
-                _vk!.DestroyBuffer(_device, _stagingBuffer, null);
-                _vk.FreeMemory(_device, _stagingBufferMemory, null);
-                _stagingBuffer = default;
-                _stagingBufferMemory = default;
-                InitializeStagingBuffer();
-
-                // Update swapchain images
-                uint imageCount = 0;
-                _khrSwapchain!.GetSwapchainImages(_device, _swapchain, &imageCount, null);
-                _swapchainImages = new Image[imageCount];
-                fixed (Image* imagesPtr = _swapchainImages)
-                {
-                    _khrSwapchain.GetSwapchainImages(_device, _swapchain, &imageCount, imagesPtr);
-                }
-
-                _lastRecreatedWidth = _pendingWidth;
-                _lastRecreatedHeight = _pendingHeight;
-                _pendingWidth = -1;
-                _pendingHeight = -1;
-            }
+        if (_skyboxPipeline != null)
+        {
+            var ubo = new PipelineBuilder.UniformBufferObject
+            {
+                model = Matrix4X4<float>.Identity,
+                view = update.ViewMatrix,
+                proj = update.ProjectionMatrix
+            };
+            _skyboxPipeline.UpdateUniformBuffer(_currentFrame, ubo);
         }
     }
 
     private void RenderFrame()
     {
-        // Wait for previous frame
+        if (_width <= 0 || _height <= 0 || _blackHolePipeline == null || _framebuffers.Length == 0)
+        {
+            Thread.Sleep(10);
+            return;
+        }
+
         _vk!.WaitForFences(_device, 1, in _inFlightFences![_currentFrame], true, ulong.MaxValue);
 
-        // Acquire image
+        // After fence wait, this frame's resources are safe to modify
+        // Update dust vertex buffer for the current frame (now safe because GPU finished with it)
+        if (_dustPipeline != null && _latestDustVertices != null)
+        {
+            _dustPipeline.UpdateVertexBuffer(_latestDustVertices, _currentFrame);
+        }
+
         uint imageIndex;
         Result result = _khrSwapchain!.AcquireNextImage(
             _device,
@@ -260,42 +226,10 @@ public unsafe class RenderWorker : IDisposable
         );
 
         if (result == Result.ErrorOutOfDateKhr)
-        {
-            return; // Need swapchain recreation
-        }
+            return;
 
         _vk.ResetFences(_device, 1, in _inFlightFences[_currentFrame]);
 
-        // Generate static - but ONLY update once per 1 frames to reduce CPU load
-        if (_frameSkip++ % 1 == 0)
-        {
-            void* data;
-            _vk.MapMemory(
-                _device,
-                _stagingBufferMemory,
-                0,
-                (ulong)(_width * _height * 4),
-                0,
-                &data
-            );
-            var pixelData = new Span<byte>(data, _width * _height * 4);
-
-            int seed = Environment.TickCount;
-            unsafe
-            {
-                ulong* ptr = (ulong*)data;
-                int count = pixelData.Length / 8;
-                for (int i = 0; i < count; i++)
-                {
-                    // Generate 8 bytes at once
-                    ptr[i] = (ulong)i * 2654435761u + (ulong)seed;
-                }
-            }
-
-            _vk.UnmapMemory(_device, _stagingBufferMemory);
-        }
-
-        // Record command buffer
         CommandBuffer cmd = _commandBuffers![_currentFrame];
 
         CommandBufferBeginInfo beginInfo = new()
@@ -306,84 +240,83 @@ public unsafe class RenderWorker : IDisposable
 
         _vk.BeginCommandBuffer(cmd, &beginInfo);
 
-        // Transition image to transfer dst
-        ImageMemoryBarrier barrier = new()
+        if (_blackHolePipeline != null && _framebuffers.Length > imageIndex)
         {
-            SType = StructureType.ImageMemoryBarrier,
-            OldLayout = ImageLayout.Undefined,
-            NewLayout = ImageLayout.TransferDstOptimal,
-            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            Image = _swapchainImages[imageIndex],
-            SubresourceRange = new ImageSubresourceRange
+            ClearValue[] clearValues = 
             {
-                AspectMask = ImageAspectFlags.ColorBit,
-                BaseMipLevel = 0,
-                LevelCount = 1,
-                BaseArrayLayer = 0,
-                LayerCount = 1,
-            },
-            SrcAccessMask = 0,
-            DstAccessMask = AccessFlags.TransferWriteBit,
-        };
+                new ClearValue
+                {
+                    Color = new ClearColorValue
+                    {
+                        Float32_0 = 0.0f,
+                        Float32_1 = 0.0f,
+                        Float32_2 = 0.0f,
+                        Float32_3 = 1.0f,
+                    },
+                },
+                new ClearValue
+                {
+                    DepthStencil = new ClearDepthStencilValue
+                    {
+                        Depth = 1.0f,
+                        Stencil = 0,
+                    },
+                },
+            };
 
-        _vk.CmdPipelineBarrier(
-            cmd,
-            PipelineStageFlags.TopOfPipeBit,
-            PipelineStageFlags.TransferBit,
-            0,
-            0,
-            null,
-            0,
-            null,
-            1,
-            &barrier
-        );
-
-        // Copy buffer to image
-        BufferImageCopy region = new()
-        {
-            BufferOffset = 0,
-            BufferRowLength = 0,
-            BufferImageHeight = 0,
-            ImageSubresource = new ImageSubresourceLayers
+            fixed (ClearValue* clearValuesPtr = clearValues)
             {
-                AspectMask = ImageAspectFlags.ColorBit,
-                MipLevel = 0,
-                BaseArrayLayer = 0,
-                LayerCount = 1,
-            },
-            ImageOffset = new Offset3D(0, 0, 0),
-            ImageExtent = new Extent3D((uint)_width, (uint)_height, 1),
-        };
+                RenderPassBeginInfo renderPassInfo = new()
+                {
+                    SType = StructureType.RenderPassBeginInfo,
+                    RenderPass = _blackHolePipeline._renderPass,
+                    Framebuffer = _framebuffers[imageIndex],
+                    RenderArea = new Rect2D
+                    {
+                        Offset = new Offset2D(0, 0),
+                        Extent = new Extent2D((uint)_width, (uint)_height),
+                    },
+                    ClearValueCount = 2,
+                    PClearValues = clearValuesPtr,
+                };
 
-        _vk.CmdCopyBufferToImage(
-            cmd,
-            _stagingBuffer,
-            _swapchainImages[imageIndex],
-            ImageLayout.TransferDstOptimal,
-            1,
-            &region
-        );
+                _vk.CmdBeginRenderPass(cmd, &renderPassInfo, SubpassContents.Inline);
+            }
 
-        // Transition to present
-        barrier.OldLayout = ImageLayout.TransferDstOptimal;
-        barrier.NewLayout = ImageLayout.PresentSrcKhr;
-        barrier.SrcAccessMask = AccessFlags.TransferWriteBit;
-        barrier.DstAccessMask = 0;
+            // Set viewport and scissor
+            Viewport viewport = new()
+            {
+                X = 0.0f,
+                Y = 0.0f,
+                Width = (uint)_width,
+                Height = (uint)_height,
+                MinDepth = 0.0f,
+                MaxDepth = 1.0f,
+            };
+            _vk.CmdSetViewport(cmd, 0, 1, &viewport);
 
-        _vk.CmdPipelineBarrier(
-            cmd,
-            PipelineStageFlags.TransferBit,
-            PipelineStageFlags.BottomOfPipeBit,
-            0,
-            0,
-            null,
-            0,
-            null,
-            1,
-            &barrier
-        );
+            Rect2D scissor = new()
+            {
+                Offset = new Offset2D(0, 0),
+                Extent = new Extent2D((uint)_width, (uint)_height),
+            };
+            _vk.CmdSetScissor(cmd, 0, 1, &scissor);
+
+            // Render in order: Black Hole -> Dust -> Skybox (background rendered last with depth test)
+            _blackHolePipeline.RecordDrawCommands(cmd, _currentFrame);
+
+            if (_dustPipeline != null)
+            {
+                _dustPipeline.RecordDrawCommands(cmd, _currentFrame);
+            }
+
+            if (_skyboxPipeline != null)
+            {
+                _skyboxPipeline.RecordDrawCommands(cmd, _currentFrame);
+            }
+
+            _vk.CmdEndRenderPass(cmd);
+        }
 
         _vk.EndCommandBuffer(cmd);
 
@@ -443,57 +376,11 @@ public unsafe class RenderWorker : IDisposable
 
         fixed (CommandBuffer* commandBuffersPtr = _commandBuffers)
         {
-            if (
-                _vk!.AllocateCommandBuffers(_device, &allocInfo, commandBuffersPtr)
-                != Result.Success
-            )
+            if (_vk!.AllocateCommandBuffers(_device, &allocInfo, commandBuffersPtr) != Result.Success)
             {
                 throw new Exception("Failed to allocate command buffers!");
             }
         }
-    }
-
-    private void InitializeStagingBuffer()
-    {
-        ulong bufferSize = (ulong)(_width * _height * 4);
-
-        BufferCreateInfo bufferInfo = new()
-        {
-            SType = StructureType.BufferCreateInfo,
-            Size = bufferSize,
-            Usage = BufferUsageFlags.TransferSrcBit,
-            SharingMode = SharingMode.Exclusive,
-        };
-
-        if (_vk!.CreateBuffer(_device, &bufferInfo, null, out _stagingBuffer) != Result.Success)
-        {
-            throw new Exception("Failed to create staging buffer!");
-        }
-
-        MemoryRequirements memRequirements;
-        _vk.GetBufferMemoryRequirements(_device, _stagingBuffer, &memRequirements);
-
-        MemoryAllocateInfo allocInfo = new()
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = Vulkan.FindMemoryType(
-                _vk,
-                _physicalDevice,
-                memRequirements.MemoryTypeBits,
-                MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit
-            ),
-        };
-
-        if (
-            _vk.AllocateMemory(_device, &allocInfo, null, out _stagingBufferMemory)
-            != Result.Success
-        )
-        {
-            throw new Exception("Failed to allocate staging buffer memory!");
-        }
-
-        _vk.BindBufferMemory(_device, _stagingBuffer, _stagingBufferMemory, 0);
     }
 
     private void InitializeSyncObjects()
@@ -513,40 +400,166 @@ public unsafe class RenderWorker : IDisposable
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             if (
-                _vk!.CreateSemaphore(
-                    _device,
-                    &semaphoreInfo,
-                    null,
-                    out _imageAvailableSemaphores[i]
-                ) != Result.Success
-                || _vk.CreateSemaphore(
-                    _device,
-                    &semaphoreInfo,
-                    null,
-                    out _renderFinishedSemaphores[i]
-                ) != Result.Success
-                || _vk.CreateFence(_device, &fenceInfo, null, out _inFlightFences[i])
-                    != Result.Success
+                _vk!.CreateSemaphore(_device, &semaphoreInfo, null, out _imageAvailableSemaphores[i]) != Result.Success
+                || _vk.CreateSemaphore(_device, &semaphoreInfo, null, out _renderFinishedSemaphores[i]) != Result.Success
+                || _vk.CreateFence(_device, &fenceInfo, null, out _inFlightFences[i]) != Result.Success
             )
             {
-                throw new Exception("Failed make sync objects");
+                throw new Exception($"Failed to create synchronization objects for frame {i}!");
+            }
+        }
+    }
+
+    private void CreateFramebuffers()
+    {
+        if (_blackHolePipeline == null || _swapchainImages.Length == 0 || _width <= 0 || _height <= 0)
+            return;
+
+        // Create depth image using Vulkan API directly
+        ImageCreateInfo imageInfo = new()
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Extent = new Extent3D((uint)_width, (uint)_height, 1),
+            MipLevels = 1,
+            ArrayLayers = 1,
+            Format = Format.D32Sfloat,
+            Tiling = ImageTiling.Optimal,
+            InitialLayout = ImageLayout.Undefined,
+            Usage = ImageUsageFlags.DepthStencilAttachmentBit,
+            Samples = SampleCountFlags.Count1Bit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        if (_vk!.CreateImage(_device, &imageInfo, null, out _depthImage) != Result.Success)
+        {
+            throw new Exception("Failed to create depth image!");
+        }
+
+        // Allocate memory for depth image
+        MemoryRequirements memRequirements;
+        _vk.GetImageMemoryRequirements(_device, _depthImage, &memRequirements);
+
+        MemoryAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.MemoryAllocateInfo,
+            AllocationSize = memRequirements.Size,
+            MemoryTypeIndex = Vulkan.FindMemoryType(_vk, _vulkan!.PhysicalDevice, memRequirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit),
+        };
+
+        if (_vk.AllocateMemory(_device, &allocInfo, null, out _depthImageMemory) != Result.Success)
+        {
+            throw new Exception("Failed to allocate depth image memory!");
+        }
+
+        _vk.BindImageMemory(_device, _depthImage, _depthImageMemory, 0);
+
+        // Create depth image view
+        ImageViewCreateInfo depthViewInfo = new()
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = _depthImage,
+            ViewType = ImageViewType.Type2D,
+            Format = Format.D32Sfloat,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.DepthBit,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 1,
+            },
+        };
+
+        if (_vk!.CreateImageView(_device, &depthViewInfo, null, out _depthImageView) != Result.Success)
+        {
+            throw new Exception("Failed to create depth image view!");
+        }
+
+        _swapchainImageViews = new ImageView[_swapchainImages.Length];
+        _framebuffers = new Framebuffer[_swapchainImages.Length];
+
+        for (int i = 0; i < _swapchainImages.Length; i++)
+        {
+            ImageViewCreateInfo viewInfo = new()
+            {
+                SType = StructureType.ImageViewCreateInfo,
+                Image = _swapchainImages[i],
+                ViewType = ImageViewType.Type2D,
+                Format = _vulkan!._swapChainImageFormat,
+                Components = new ComponentMapping
+                {
+                    R = ComponentSwizzle.Identity,
+                    G = ComponentSwizzle.Identity,
+                    B = ComponentSwizzle.Identity,
+                    A = ComponentSwizzle.Identity,
+                },
+                SubresourceRange = new ImageSubresourceRange
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    BaseMipLevel = 0,
+                    LevelCount = 1,
+                    BaseArrayLayer = 0,
+                    LayerCount = 1,
+                },
+            };
+
+            if (_vk!.CreateImageView(_device, &viewInfo, null, out _swapchainImageViews[i]) != Result.Success)
+            {
+                throw new Exception($"Failed to create image view {i}!");
+            }
+
+            ImageView[] attachments = { _swapchainImageViews[i], _depthImageView };
+            fixed (ImageView* attachmentsPtr = attachments)
+            {
+                FramebufferCreateInfo framebufferInfo = new()
+                {
+                    SType = StructureType.FramebufferCreateInfo,
+                    RenderPass = _blackHolePipeline._renderPass,
+                    AttachmentCount = 2,
+                    PAttachments = attachmentsPtr,
+                    Width = (uint)_width,
+                    Height = (uint)_height,
+                    Layers = 1,
+                };
+
+                if (_vk.CreateFramebuffer(_device, &framebufferInfo, null, out _framebuffers[i]) != Result.Success)
+                {
+                    throw new Exception($"Failed to create framebuffer {i}!");
+                }
             }
         }
     }
 
     public void Dispose()
     {
-        Stop(); // Stop render thread first
+        Stop();
 
         if (_vk != null && _device.Handle != 0)
         {
-            _vk.DeviceWaitIdle(_device); // Ensure GPU is idle
+            _vk.DeviceWaitIdle(_device);
 
-            // Destroy staging buffer
-            if (_stagingBuffer.Handle != 0)
-                _vk.DestroyBuffer(_device, _stagingBuffer, null);
-            if (_stagingBufferMemory.Handle != 0)
-                _vk.FreeMemory(_device, _stagingBufferMemory, null);
+            // Destroy framebuffers and image views
+            for (int i = 0; i < _framebuffers.Length; i++)
+            {
+                if (_framebuffers[i].Handle != 0)
+                    _vk.DestroyFramebuffer(_device, _framebuffers[i], null);
+                if (_swapchainImageViews.Length > i && _swapchainImageViews[i].Handle != 0)
+                    _vk.DestroyImageView(_device, _swapchainImageViews[i], null);
+            }
+
+            // Destroy depth resources
+            if (_depthImageView.Handle != 0)
+                _vk.DestroyImageView(_device, _depthImageView, null);
+            if (_depthImage.Handle != 0)
+                _vk.DestroyImage(_device, _depthImage, null);
+            if (_depthImageMemory.Handle != 0)
+                _vk.FreeMemory(_device, _depthImageMemory, null);
+
+            // Destroy pipeline data
+            _dustPipeline?.Dispose();
+            _blackHolePipeline?.Dispose();
+            _skyboxPipeline?.Dispose();
 
             // Destroy sync objects
             for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -575,88 +588,21 @@ public unsafe class RenderWorker : IDisposable
     }
 }
 
+// Command patterns for render thread communication
 public abstract record RenderCommand;
-
-public record ResizeCommand(int Width, int Height) : RenderCommand;
-
 public record StopCommand() : RenderCommand;
-
-public record UpdateSimulationData( /* your data */
+public record UpdateSimulationDataCommand(
+    SimState SimState,
+    Matrix4X4<float> ViewMatrix,
+    Matrix4X4<float> ProjectionMatrix
+) : RenderCommand;
+public record SetPipelineDataCommand(
+    DustPipeline DustPipeline,
+    BlackHolePipeline BlackHolePipeline,
+    SkyboxPipeline SkyboxPipeline
 ) : RenderCommand;
 
-public class StatsConsole : IDisposable
-{
-    private Process? _consoleProcess;
-    private StreamWriter? _logWriter;
-    private string _logFile = string.Empty;
-    private volatile bool _isReady = false;
-    private Queue<string> _pendingMessages = new();
+public record UpdateDustVerticesCommand(Vertex[] Vertices) : RenderCommand;
 
-    public void Start()
-    {
-        _logFile = Path.Combine(Path.GetTempPath(), $"blackhole_stats_{Guid.NewGuid()}.log");
-        _logWriter = new StreamWriter(_logFile, false) { AutoFlush = true };
 
-        WriteLine("Black Hole Sim - Stats Monitor");
-        WriteLine("================================");
-        WriteLine("");
 
-        // Start PowerShell with Get-Content -Wait
-        _consoleProcess = Process.Start(
-            new ProcessStartInfo
-            {
-                FileName = "powershell.exe",
-                Arguments =
-                    $"-NoExit -Command \"Write-Host 'Stats Monitor Started' -ForegroundColor Green; Get-Content -Path '{_logFile}' -Wait\"",
-                UseShellExecute = true,
-                CreateNoWindow = false,
-            }
-        );
-
-        _isReady = true;
-
-        // Write any pending messages
-        lock (_pendingMessages)
-        {
-            while (_pendingMessages.Count > 0)
-            {
-                var msg = _pendingMessages.Dequeue();
-                _logWriter?.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
-            }
-        }
-    }
-
-    public void WriteLine(string message)
-    {
-        if (_isReady && _logWriter != null)
-        {
-            _logWriter.WriteLine($"[{DateTime.Now:HH:mm:ss}] {message}");
-        }
-        else
-        {
-            lock (_pendingMessages)
-            {
-                _pendingMessages.Enqueue(message);
-            }
-        }
-    }
-
-    public void Dispose()
-    {
-        _logWriter?.Dispose();
-        _consoleProcess?.Kill();
-        _consoleProcess?.Dispose();
-
-        // Clean up log file after a delay
-        Task.Delay(1000)
-            .ContinueWith(_ =>
-            {
-                try
-                {
-                    if (File.Exists(_logFile))
-                        File.Delete(_logFile);
-                }
-                catch { }
-            });
-    }
-}

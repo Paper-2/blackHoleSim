@@ -20,8 +20,9 @@ public class MathHelpers
         if (distance > 0)
         {
             Vector3D<float> direction = Vector3D.Normalize(directionToCenter);
-            float orbitalSpeed = (float)Sqrt((centerMass) / distance); // simplified G=1
-            Vector3D<float> tangentDirection = new Vector3D<float>(-direction.Z, 0, direction.X); // perpendicular in XZ plane
+            float orbitalSpeed = (float)Sqrt(centerMass / distance);
+
+            Vector3D<float> tangentDirection = Vector3D.Normalize(new Vector3D<float>(-direction.Z, 0, direction.X));
             TangentialVelocity = tangentDirection * orbitalSpeed;
         }
 
