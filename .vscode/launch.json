@@ -5,26 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": ".NET",
+            "name": "Debug BlackHole",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build",
-            // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/bin/Debug/net9.0/blackHoleSim.dll",
+            "preLaunchTask": "build blackHole",
+            "program": "${workspaceFolder}/blackHole/bin/Debug/net9.0/blackHole.dll",
             "args": [],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/blackHole/bin/Debug/net9.0",
             "stopAtEntry": false,
-            // Enable launching of ASP.NET Core apps.
-            "serverReadyAction": {
-                "action": "openExternally",
-                "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
-            },
-            "env": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
-            },
-            "sourceFileMap": {
-                "/Views": "${workspaceFolder}/Views"
-            }
+            "console": "internalConsole"
         }
 
     ]

@@ -920,7 +920,7 @@ public abstract unsafe class PipelineBuilder : IDisposable
 
     public abstract void UpdateVertexBuffer(Array NewVertexData);
 
-    public abstract void UpdateUniformBuffer(int currentImage, UniformBufferObject ubo);
+    public abstract void UpdateUniformBuffer(int currentImage, object ubo);
 
     // public abstract void UpdateIndexBuffer(Array NewIndexData); I don't think this needs to be updated
 
@@ -947,13 +947,5 @@ public abstract unsafe class PipelineBuilder : IDisposable
     public PipelineLayout GetPipelineLayout()
     {
         return _pipelineLayout;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct UniformBufferObject
-    {
-        public Matrix4X4<float> model;
-        public Matrix4X4<float> view;
-        public Matrix4X4<float> proj;
     }
 }

@@ -17,20 +17,20 @@ public unsafe class SimulationWindow
     private RenderWorker? _renderWorker;
     private SimState _simState = new();
 
-    private DustPipeline? _dustPipeline;
-    private BlackHolePipeline? _blackHolePipeline;
-    private SkyboxPipeline? _skyboxPipeline;
+    private RayMarchPipe? _rayMarchPipeline;
 
     // Camera state. I should probably make a Camera class for this...
-    private Vector3D<float> _cameraPosition = new(0, 1000, 3000);
-    private Vector3D<float> _cameraFront = new(0, 0, -1);
+    private Vector3D<float> _cameraPosition = new(0, 300, 600);
+    private Vector3D<float> _cameraFront = new(0, -0.316f, -0.948f); // Normalized vector pointing roughly to origin
     private Vector3D<float> _cameraUp = new(0, 1, 0);
     private float _cameraYaw = -90.0f; // Start facing -Z
-    private float _cameraPitch = 0.0f;
+    private float _cameraPitch = -18.0f; // Look down at the black hole
     private float _cameraSpeed = 50.0f;
     private float _mouseSensitivity = 0.1f;
 
     private Stopwatch _simulationTimer = new();
+    private DateTime _lastInputTime = DateTime.MinValue;
+    private const double InputCooldown = 0.2; // 200ms
 
     // Input state
     private IInputContext? _inputContext;
@@ -41,9 +41,6 @@ public unsafe class SimulationWindow
 
     // Event for testing
     public event Action? OnLoadComplete;
-
-    // Track first dust particle
-    private Dust? _firstDust;
 
     public void Initialize()
     {
@@ -118,7 +115,52 @@ public unsafe class SimulationWindow
         foreach (var keyboard in _inputContext.Keyboards)
         {
             _keyboard = keyboard;
+            _keyboard.KeyDown += OnKeyDown;
         }
+    }
+
+    private void OnKeyDown(IKeyboard keyboard, Key key, int scancode)
+    {
+        if ((DateTime.UtcNow - _lastInputTime).TotalSeconds < InputCooldown)
+            return;
+
+        if (key == Key.Tab)
+        {
+            if (_mouse != null)
+            {
+                _mouse.Cursor.CursorMode =
+                    _mouse.Cursor.CursorMode == CursorMode.Raw ? CursorMode.Normal : CursorMode.Raw;
+                _lastInputTime = DateTime.UtcNow;
+            }
+        }
+
+        if (key == Key.R)
+        {
+            ReloadPipelines();
+            _lastInputTime = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Makes changing shaders easier by eliminating the need to rebuild the project.
+    /// </summary>
+    private void ReloadPipelines()
+    {
+        _simulationTimer.Stop();
+
+        // Stop and dispose render worker to ensure clean state
+        _renderWorker?.Dispose(); // disposes the pipelines
+
+        // Create new worker
+        _renderWorker = new RenderWorker();
+
+        // Re-initialize pipelines (this sends the new pipeline to the new worker)
+        InitializePipelines();
+
+        // Restart worker
+        _renderWorker.Start(_vulkan!);
+        _simulationTimer.Start();
+        Console.WriteLine("Pipelines reloaded.");
     }
 
     private void OnMouseMove(IMouse mouse, Vector2 position)
@@ -134,8 +176,12 @@ public unsafe class SimulationWindow
         var deltaY = position.Y - _lastMousePosition.Y;
         _lastMousePosition = position;
 
+        // Only move camera if in Raw mode
+        if (_mouse!.Cursor.CursorMode != CursorMode.Raw)
+            return;
+
         _cameraYaw += deltaX * _mouseSensitivity;
-        _cameraPitch += deltaY * _mouseSensitivity;
+        _cameraPitch -= deltaY * _mouseSensitivity;
 
         // avoids flipping
         _cameraPitch = Math.Clamp(_cameraPitch, -89.0f, 89.0f);
@@ -159,103 +205,34 @@ public unsafe class SimulationWindow
 
     private void InitializeSimulation()
     {
-        // Create black hole at center with icosphere
-        _simState.CentralBlackHole.Sols = 4000000; // name doesn't really matter here
-        _simState.CentralBlackHole.Position = Vector3D<float>.Zero;
-        _simState.CentralBlackHole.SphereModel = new Sphere(4, 200.0f); // Bigger please
-
-        // Create skybox as large inside-out sphere
-        _simState.Skybox.SphereModel = new Sphere(5, 50000.0f, insideOut: true);
-
-        // Clear auto-generated dust and create orbital configuration using generateDustFieldDisk
-        _simState.Dusts.Clear();
-
-        // Disk parameters
-        const float diskOuterRadius = 1220.0f; // 220 (inner) + 1000 (width)
-        const float diskInnerRadius = 220.0f; // 110% of sphere radius (200.0 * 1.1)
-        const float diskThickness = 0.1f;
-        const int particleCount = 100000;
-
-        Dust.generateDustFieldDisk(
-            _simState.Dusts,
-            particleCount,
-            diskOuterRadius,
-            diskInnerRadius,
-            diskThickness,
-            (float)_simState.CentralBlackHole.SchwarzschildRadius * 0.8f
-        );
+        // Everything is now happening in the GPU
+        // TODO: Figure out how to use the simulation.
     }
 
     // I don't know where to put this function logic. Vulkan? Pipeline? Renderer?
     private void InitializePipelines()
     {
-        // Create dust pipeline
-        _dustPipeline = new DustPipeline(_vulkan!);
-
-        var dustVertices = new Vertex[_simState.Dusts.Count];
-        for (int i = 0; i < _simState.Dusts.Count; i++)
-        {
-            // Color: inner (hot/bright white-yellow) to outer (cool/dim red-orange)
-            float dist = _simState.Dusts[i].Position.Length;
-            float colorT = (dist - 220.0f) / 1000.0f; // Map from inner to outer radius
-            colorT = Math.Clamp(colorT, 0.0f, 1.0f);
-
-            dustVertices[i] = new Vertex
-            {
-                Position = new System.Numerics.Vector3(
-                    _simState.Dusts[i].Position.X,
-                    _simState.Dusts[i].Position.Y,
-                    _simState.Dusts[i].Position.Z
-                ),
-                Color = new System.Numerics.Vector3(
-                    1.0f, // R: bright red throughout
-                    1.0f - colorT * 0.7f, // G: 1.0 (inner) -> 0.3 (outer) - yellow to orange
-                    1.0f - colorT * 1.0f // B: 1.0 (inner) -> 0.0 (outer) - white to red
-                ),
-                Normal = new System.Numerics.Vector3(0, 1, 0),
-                TexCoord = new System.Numerics.Vector2(0, 0),
-            };
-        }
-        _dustPipeline.SetVertexArray(dustVertices);
-        _dustPipeline.build();
-        _dustPipeline.CreateGraphicsPipeline(
-            "blackHole/Resources/Shaders/dust.vert",
-            "blackHole/Resources/Shaders/dust.frag"
-        );
-
-        // Create black hole pipeline
-        _blackHolePipeline = new BlackHolePipeline(_vulkan!);
-        _blackHolePipeline.SetSphere(_simState.CentralBlackHole.SphereModel);
-        _blackHolePipeline.build();
-        _blackHolePipeline.CreateGraphicsPipeline(
-            "blackHole/Resources/Shaders/blackhole.vert",
-            "blackHole/Resources/Shaders/blackhole.frag"
-        );
-
-        // Create skybox pipeline
-        _skyboxPipeline = new SkyboxPipeline(_vulkan);
-        _skyboxPipeline.SetSphere(_simState.Skybox.SphereModel);
-        _skyboxPipeline.build();
-        _skyboxPipeline.CreateGraphicsPipeline(
-            "blackHole/Resources/Shaders/skybox.vert",
-            "blackHole/Resources/Shaders/skybox.frag"
+        // Create ray marching pipeline
+        _rayMarchPipeline = new RayMarchPipe(_vulkan!);
+        _rayMarchPipeline.build();
+        _rayMarchPipeline.CreateGraphicsPipeline(
+            "blackHole/Resources/Shaders/raymarch.vert",
+            "blackHole/Resources/Shaders/raymarch.frag"
         );
 
         // Send pipelines to render worker
-        _renderWorker!.SendCommand(
-            new SetPipelineDataCommand(_dustPipeline, _blackHolePipeline, _skyboxPipeline)
-        );
+        _renderWorker!.SendCommand(new SetPipelineDataCommand(_rayMarchPipeline!));
     }
 
     private void OnUpdate(double deltaTime)
     {
         // Handle keyboard input for camera movement
-        if (_keyboard != null)
+        if (_keyboard != null && _mouse?.Cursor.CursorMode == CursorMode.Raw)
         {
             var velocity = _cameraSpeed * (float)deltaTime;
 
             // Calculate right vector
-            var right = Vector3D.Normalize(Vector3D.Cross(_cameraFront, _cameraUp));
+            var camRight = Vector3D.Normalize(Vector3D.Cross(_cameraFront, _cameraUp));
 
             // WASD movement
             if (_keyboard.IsKeyPressed(Key.W))
@@ -263,15 +240,15 @@ public unsafe class SimulationWindow
             if (_keyboard.IsKeyPressed(Key.S))
                 _cameraPosition -= _cameraFront * velocity;
             if (_keyboard.IsKeyPressed(Key.A))
-                _cameraPosition -= right * velocity;
+                _cameraPosition -= camRight * velocity;
             if (_keyboard.IsKeyPressed(Key.D))
-                _cameraPosition += right * velocity;
+                _cameraPosition += camRight * velocity;
 
             // Space/Shift for vertical movement
             if (_keyboard.IsKeyPressed(Key.Space))
-                _cameraPosition -= _cameraUp * velocity;
-            if (_keyboard.IsKeyPressed(Key.ShiftLeft) || _keyboard.IsKeyPressed(Key.ShiftRight))
                 _cameraPosition += _cameraUp * velocity;
+            if (_keyboard.IsKeyPressed(Key.ShiftLeft) || _keyboard.IsKeyPressed(Key.ShiftRight))
+                _cameraPosition -= _cameraUp * velocity;
 
             // ESC to exit
             if (_keyboard.IsKeyPressed(Key.Escape))
@@ -315,14 +292,7 @@ public unsafe class SimulationWindow
             _renderWorker?.SendCommand(new UpdateDustVerticesCommand(dustVertices));
         }
 
-        // // Print first dust particle info every 60 frames (~1 second)
-        // if (_firstDust != null && (int)(_simulationTimer.Elapsed.TotalSeconds * 60) % 60 == 0)
-        // {
-        //     Console.WriteLine(
-        //         $"First dust - Pos: ({_firstDust.Position.X:F2}, {_firstDust.Position.Y:F2}, {_firstDust.Position.Z:F2}), "
-        //             + $"Vel: ({_firstDust.Velocity.X:F4}, {_firstDust.Velocity.Y:F4}, {_firstDust.Velocity.Z:F4})"
-        //     );
-        // }
+
 
         // Camera target is position + front direction
         var cameraTarget = _cameraPosition + _cameraFront;
@@ -339,8 +309,25 @@ public unsafe class SimulationWindow
             10000.0f // far plane
         );
 
+        // Calculate orthogonal camera vectors for ray marching
+        var right = Vector3D.Normalize(Vector3D.Cross(_cameraFront, _cameraUp));
+        var orthoUp = Vector3D.Normalize(Vector3D.Cross(right, _cameraFront));
+
         // Send updated data to render thread
-        _renderWorker?.SendCommand(new UpdateSimulationDataCommand(_simState, view, projection));
+        _renderWorker?.SendCommand(
+            new UpdateSimulationDataCommand(
+                _simState,
+                view,
+                projection,
+                _cameraPosition,
+                _cameraFront,
+                orthoUp,
+                right,
+                MathF.PI / 4.0f, // FOV
+                aspect,
+                (float)_simulationTimer.Elapsed.TotalSeconds
+            )
+        );
     }
 
     private void OnRender(double deltaTime)

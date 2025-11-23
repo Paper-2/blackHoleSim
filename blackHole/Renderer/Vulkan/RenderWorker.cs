@@ -37,11 +37,10 @@ public unsafe class RenderWorker : IDisposable
 
     private readonly object _queueLock = new();
     private Vertex[]? _latestDustVertices;
+    private RayMarchPipe.RayMarchUBO? _latestUBO;
 
     // Rendering pipelines
-    private DustPipeline? _dustPipeline;
-    private BlackHolePipeline? _blackHolePipeline;
-    private SkyboxPipeline? _skyboxPipeline;
+    private RayMarchPipe? _rayMarchPipeline;
 
     // Framebuffers and image views
     private Image[] _swapchainImages = Array.Empty<Image>();
@@ -148,9 +147,8 @@ public unsafe class RenderWorker : IDisposable
                     UpdatePipelineUniforms(update);
                     break;
                 case SetPipelineDataCommand setPipeline:
-                    _dustPipeline = setPipeline.DustPipeline;
-                    _blackHolePipeline = setPipeline.BlackHolePipeline;
-                    _skyboxPipeline = setPipeline.SkyboxPipeline;
+
+                    _rayMarchPipeline = setPipeline.RayMarchPipeline;
                     CreateFramebuffers();
                     break;
                 case UpdateDustVerticesCommand updateDust:
@@ -162,60 +160,46 @@ public unsafe class RenderWorker : IDisposable
 
     private void UpdatePipelineUniforms(UpdateSimulationDataCommand update)
     {
-        if (_dustPipeline != null)
+        if (_rayMarchPipeline != null)
         {
-            var ubo = new PipelineBuilder.UniformBufferObject
-            {
-                model = Matrix4X4<float>.Identity,
-                view = update.ViewMatrix,
-                proj = update.ProjectionMatrix,
-            };
-            _dustPipeline.UpdateUniformBuffer(_currentFrame, ubo);
-        }
+            Matrix4X4<float> invViewMatrix;
+            Matrix4X4.Invert(update.ViewMatrix, out invViewMatrix);
+            float tanHalfFov = MathF.Tan(update.Fov / 2.0f);
+            float aspect = update.AspectRatio;
 
-        if (_blackHolePipeline != null)
-        {
-            var ubo = new PipelineBuilder.UniformBufferObject
-            {
-                model = Matrix4X4.CreateTranslation(
-                    update.SimState.CentralBlackHole.Position.X,
-                    update.SimState.CentralBlackHole.Position.Y,
-                    update.SimState.CentralBlackHole.Position.Z
-                ),
-                view = update.ViewMatrix,
-                proj = update.ProjectionMatrix,
-            };
-            _blackHolePipeline.UpdateUniformBuffer(_currentFrame, ubo);
-        }
+            Vector4D<float> topLeft = new(-tanHalfFov * aspect, tanHalfFov, -1.0f, 0.0f);
+            Vector4D<float> topRight = new(tanHalfFov * aspect, tanHalfFov, -1.0f, 0.0f);
+            Vector4D<float> bottomRight = new(tanHalfFov * aspect, -tanHalfFov, -1.0f, 0.0f);
+            Vector4D<float> bottomLeft = new(-tanHalfFov * aspect, -tanHalfFov, -1.0f, 0.0f);
 
-        if (_skyboxPipeline != null)
-        {
-            var ubo = new PipelineBuilder.UniformBufferObject
+            _latestUBO = new RayMarchPipe.RayMarchUBO
             {
-                model = Matrix4X4<float>.Identity,
-                view = update.ViewMatrix,
-                proj = update.ProjectionMatrix,
+                uInvViewMatrix = invViewMatrix,
+                uCameraPos = update.CameraPos,
+                uFrustumCorners0 = topLeft,
+                uFrustumCorners1 = topRight,
+                uFrustumCorners2 = bottomRight,
+                uFrustumCorners3 = bottomLeft,
+                uAccretionDiskColor = new Vector4D<float>(1.0f, 0.6f, 0.2f, 1.0f), // orangeish
+                uBlackHoleColor = new Vector4D<float>(0.0f, 0.0f, 0.0f, 1.0f),
+                uResolution = new Vector2D<float>(_width, _height),
+                uTime = update.Time,
+                uSchwarzschildRadius = (float)update.SimState.CentralBlackHole.SphereModel.Radius,
+                uSpaceDistortion = 4.069f,
+                uAccretionDiskThickness = 0.02f,
             };
-            _skyboxPipeline.UpdateUniformBuffer(_currentFrame, ubo);
         }
     }
 
     private void RenderFrame()
     {
-        if (_width <= 0 || _height <= 0 || _blackHolePipeline == null || _framebuffers.Length == 0)
+        if (_width <= 0 || _height <= 0 || _rayMarchPipeline == null || _framebuffers.Length == 0)
         {
             Thread.Sleep(10);
             return;
         }
 
         _vk!.WaitForFences(_device, 1, in _inFlightFences![_currentFrame], true, ulong.MaxValue);
-
-        // After fence wait, this frame's resources are safe to modify
-        // Update dust vertex buffer for the current frame (now safe because GPU finished with it)
-        if (_dustPipeline != null && _latestDustVertices != null)
-        {
-            _dustPipeline.UpdateVertexBuffer(_latestDustVertices, _currentFrame);
-        }
 
         uint imageIndex;
         Result result = _khrSwapchain!.AcquireNextImage(
@@ -242,7 +226,12 @@ public unsafe class RenderWorker : IDisposable
 
         _vk.BeginCommandBuffer(cmd, &beginInfo);
 
-        if (_blackHolePipeline != null && _framebuffers.Length > imageIndex)
+        if (_rayMarchPipeline != null && _latestUBO.HasValue)
+        {
+            _rayMarchPipeline.UpdateUniformBuffer(_currentFrame, _latestUBO.Value);
+        }
+
+        if (_rayMarchPipeline != null && _framebuffers.Length > imageIndex)
         {
             ClearValue[] clearValues =
             {
@@ -267,7 +256,7 @@ public unsafe class RenderWorker : IDisposable
                 RenderPassBeginInfo renderPassInfo = new()
                 {
                     SType = StructureType.RenderPassBeginInfo,
-                    RenderPass = _blackHolePipeline._renderPass,
+                    RenderPass = _rayMarchPipeline._renderPass,
                     Framebuffer = _framebuffers[imageIndex],
                     RenderArea = new Rect2D
                     {
@@ -300,17 +289,13 @@ public unsafe class RenderWorker : IDisposable
             };
             _vk.CmdSetScissor(cmd, 0, 1, &scissor);
 
-            // Render in order: Black Hole -> Dust -> Skybox (background rendered last with depth test)
-            _blackHolePipeline.RecordDrawCommands(cmd, _currentFrame);
-
-            if (_dustPipeline != null)
+            if (_rayMarchPipeline != null)
             {
-                _dustPipeline.RecordDrawCommands(cmd, _currentFrame);
+                _rayMarchPipeline.RecordDrawCommands(cmd, _currentFrame);
             }
-
-            if (_skyboxPipeline != null)
+            else
             {
-                _skyboxPipeline.RecordDrawCommands(cmd, _currentFrame);
+                throw new Exception("RayMarchPipeline is null during rendering.");
             }
 
             _vk.CmdEndRenderPass(cmd);
@@ -425,7 +410,7 @@ public unsafe class RenderWorker : IDisposable
     private void CreateFramebuffers()
     {
         if (
-            _blackHolePipeline == null
+            _rayMarchPipeline == null
             || _swapchainImages.Length == 0
             || _width <= 0
             || _height <= 0
@@ -543,7 +528,7 @@ public unsafe class RenderWorker : IDisposable
                 FramebufferCreateInfo framebufferInfo = new()
                 {
                     SType = StructureType.FramebufferCreateInfo,
-                    RenderPass = _blackHolePipeline._renderPass,
+                    RenderPass = _rayMarchPipeline._renderPass,
                     AttachmentCount = 2,
                     PAttachments = attachmentsPtr,
                     Width = (uint)_width,
@@ -588,9 +573,7 @@ public unsafe class RenderWorker : IDisposable
                 _vk.FreeMemory(_device, _depthImageMemory, null);
 
             // Destroy pipeline data
-            _dustPipeline?.Dispose();
-            _blackHolePipeline?.Dispose();
-            _skyboxPipeline?.Dispose();
+            _rayMarchPipeline?.Dispose();
 
             // Destroy sync objects
             for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -632,13 +615,16 @@ public record StopCommand() : RenderCommand;
 public record UpdateSimulationDataCommand(
     SimState SimState,
     Matrix4X4<float> ViewMatrix,
-    Matrix4X4<float> ProjectionMatrix
+    Matrix4X4<float> ProjectionMatrix,
+    Vector3D<float> CameraPos,
+    Vector3D<float> CameraFront,
+    Vector3D<float> CameraUp,
+    Vector3D<float> CameraRight,
+    float Fov,
+    float AspectRatio,
+    float Time
 ) : RenderCommand;
 
-public record SetPipelineDataCommand(
-    DustPipeline DustPipeline,
-    BlackHolePipeline BlackHolePipeline,
-    SkyboxPipeline SkyboxPipeline
-) : RenderCommand;
+public record SetPipelineDataCommand(RayMarchPipe RayMarchPipeline) : RenderCommand;
 
 public record UpdateDustVerticesCommand(Vertex[] Vertices) : RenderCommand;

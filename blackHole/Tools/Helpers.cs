@@ -72,3 +72,46 @@ public class Sphere : Thing3D
         }
     }
 }
+
+/// <summary>
+/// Helper functions
+/// </summary>
+public class Helpers
+{
+    /// <summary>
+    /// 
+    public static string FindFilePath(string filePath, params string[] additionalSearchDirs)
+    {
+        if (File.Exists(filePath))
+            return filePath;
+
+        string withoutPrefix = filePath.Replace("blackHole/", string.Empty);
+        if (File.Exists(withoutPrefix))
+            return withoutPrefix;
+
+        string relativePath = Path.Combine("..", "..", "..", withoutPrefix);
+        if (File.Exists(relativePath))
+            return relativePath;
+
+        string currentDirPath = Path.Combine(Directory.GetCurrentDirectory(), withoutPrefix);
+        if (File.Exists(currentDirPath))
+            return currentDirPath;
+
+        if (additionalSearchDirs != null)
+        {
+            foreach (var dir in additionalSearchDirs)
+            {
+                string candidate = Path.Combine(dir, Path.GetFileName(withoutPrefix));
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        if (Path.IsPathRooted(filePath) && File.Exists(filePath))
+            return filePath;
+
+        throw new FileNotFoundException(
+            $"File not found. Tried: '{filePath}', '{withoutPrefix}', '{relativePath}', '{currentDirPath}' and additional search dirs."
+        );
+    }
+}
