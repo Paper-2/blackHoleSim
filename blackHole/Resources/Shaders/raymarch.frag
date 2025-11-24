@@ -6,6 +6,8 @@ layout(location = 0) out vec4 outColor;
 layout(binding = 0) uniform sampler2D uSkybox;
 layout(binding = 1) uniform sampler2D uNoise;
 
+const uint DISTANCE = 1000;
+
 layout(std140, binding = 2) uniform RayMarchUBO {
     mat4 uInvViewMatrix;
     vec3 uCameraPos;
@@ -22,6 +24,7 @@ layout(std140, binding = 2) uniform RayMarchUBO {
 } ubo;
 
 // functions here were taken from shadertoys, and other tutorials. Or something.
+
 float GetSpaceDistortionLerpValue(
     float schwarzschildRadius,
     float distanceToSingularity,
@@ -101,11 +104,45 @@ vec3 DistortRay(vec3 pos, vec3 prevDir, float stepSize) {
     return normalize(blended) * stepSize;
 }
 
+// Reduce cloud banding by shrinking the step size close to strong curvature or dense disk regions.
+float ComputeAdaptiveStep(
+    vec3 pos,
+    vec3 dir,
+    float baseStep,
+    float schwarzschildRadius,
+    float halfThickness) {
+    float distanceToSingularity = max(length(pos), 0.0001);
+    float gravityStrength = clamp((schwarzschildRadius * 2.5) / distanceToSingularity, 0.0, 1.0);
+
+    float radial = length(pos.xz);
+    float innerRadius = schwarzschildRadius * 3.0;
+    float outerRadius = schwarzschildRadius * 9.0;
+    float radialFadeIn = smoothstep(innerRadius - schwarzschildRadius * 0.5, innerRadius + schwarzschildRadius * 0.5, radial);
+    float radialFadeOut = smoothstep(outerRadius - schwarzschildRadius * 0.5, outerRadius + schwarzschildRadius * 0.5, radial);
+    float radialInfluence = clamp(radialFadeIn - radialFadeOut, 0.0, 1.0);
+
+    float verticalInfluence = 1.0 - clamp(abs(pos.y) / (halfThickness * 2.5 + 0.0001), 0.0, 1.0);
+    float diskInfluence = clamp(radialInfluence * verticalInfluence, 0.0, 1.0);
+
+    float tangentFactor = 1.0 - abs(dot(normalize(dir), vec3(0.0, 1.0, 0.0)));
+    float grazingInfluence = smoothstep(0.2, 0.9, tangentFactor);
+
+    float gravityScale = mix(2.0, 0.4, gravityStrength);
+    float diskScale = mix(1.5, 0.35, diskInfluence);
+    float grazingScale = mix(1.0, 0.6, grazingInfluence * diskInfluence);
+    float stepScale = min(gravityScale, min(diskScale, grazingScale));
+
+    float stepMin = baseStep * 0.2;
+    float stepMax = baseStep * 3.0;
+    return clamp(baseStep * stepScale, stepMin, stepMax);
+}
+
 vec4 raymarch(vec3 ro, vec3 rd) {
-    const int maxstep = 762;
+    const int maxstep = 1000;
     vec3 previousPos = ro;
     float r = ubo.uSchwarzschildRadius;
-    float stepSize = max(r * 0.1, 0.01);
+    float baseStep = DISTANCE / float(maxstep);
+    float traveled = 0.0;
 
     vec3 previousRayDir = rd;
 
@@ -113,26 +150,62 @@ vec4 raymarch(vec3 ro, vec3 rd) {
     float blackHoleInfluence = 0.0;
     float diskMask = 0.0;
     vec3 diskColor = vec3(0.0);
+    float halfThickness = max(ubo.uAccretionDiskThickness, 0.001);
+
+    bool hasBacktrace = false;
+    float nextStepOverride = -1.0;
+    float innerRadius = ubo.uSchwarzschildRadius * 3.0;
+    float outerRadius = ubo.uSchwarzschildRadius * 9.0;
 
     for (int i = 0; i < maxstep; ++i) {
-        distanceToSingularity = distance(vec3(0.0), previousPos);
-        vec3 newRayDir = DistortRay(previousPos, previousRayDir, stepSize);
-        vec3 newPos = previousPos + newRayDir;
-
+        distanceToSingularity = length(previousPos);
         if (distanceToSingularity < ubo.uSchwarzschildRadius) {
             blackHoleInfluence = 1.0;
             break;
         }
 
-        // Disk drawing
+        if (traveled > DISTANCE) {
+            break;
+        }
+
+        vec3 startPos = previousPos;
+        float adaptiveStep = nextStepOverride > 0.0
+        ? nextStepOverride
+        : ComputeAdaptiveStep(startPos, previousRayDir, baseStep, r, halfThickness);
+        nextStepOverride = -1.0;
+
+        vec3 stepVec = DistortRay(startPos, previousRayDir, adaptiveStep);
+        vec3 stepDir = length(stepVec) > 0.0 ? normalize(stepVec) : previousRayDir;
+        vec3 newPos = startPos + stepVec;
+
+        float postDistance = length(newPos);
+        if (postDistance < ubo.uSchwarzschildRadius) {
+            blackHoleInfluence = 1.0;
+            previousPos = newPos;
+            previousRayDir = stepDir;
+            break;
+        }
+
         float radial = length(newPos.xz);
-        float innerRadius = ubo.uSchwarzschildRadius * 3;
-        float outerRadius = ubo.uSchwarzschildRadius * 9.0;
-        float halfThickness = max(ubo.uAccretionDiskThickness, 0.0005);
         bool insideDisk =
         abs(newPos.y) <= halfThickness
         && radial > innerRadius
         && radial < outerRadius;
+
+        if (insideDisk && !hasBacktrace) {
+            hasBacktrace = true;
+            float refinedStep = adaptiveStep * 0.25;
+            float backtrack = refinedStep * 3.0;
+            float availableBackward = max(traveled, 0.0);
+            float actualBacktrack = clamp(backtrack, 0.0, availableBackward);
+            previousPos = startPos - stepDir * actualBacktrack;
+            traveled = max(traveled - actualBacktrack, 0.0);
+            nextStepOverride = refinedStep;
+            previousRayDir = stepDir;
+            continue;
+        }
+
+        traveled += adaptiveStep;
 
         if (insideDisk) {
             float opacity = computeDiskOpacity(radial, innerRadius, outerRadius);
@@ -140,22 +213,17 @@ vec4 raymarch(vec3 ro, vec3 rd) {
                 diskColor = shadeDisk(newPos);
                 diskMask = opacity;
             }
-        }
-
-        // Ensure rays that pass near the disk between steps still register an intersection. Otherwise the ray would just pass right through objects
-        // This solution isn't perfect the rings are still appearing although barely noticeable
-        // TODO: find a way to automate this. Get the object -> make a SDF map -> use the SDF map.
-        if (!insideDisk && diskMask < 1.0) {
-            float prevHeight = previousPos.y;
+        } else if (diskMask < 1.0) {
+            float prevHeight = startPos.y;
             float newHeight = newPos.y;
             float heightDelta = newHeight - prevHeight;
             if (
-                (abs(prevHeight) <= halfThickness + stepSize
-                    || abs(newHeight) <= halfThickness + stepSize)
+                (abs(prevHeight) <= halfThickness + adaptiveStep
+                    || abs(newHeight) <= halfThickness + adaptiveStep)
                 && abs(heightDelta) > 1e-5) {
                 float t = clamp(-prevHeight / heightDelta, 0.0, 1.0);
-                vec3 segment = newPos - previousPos;
-                vec3 interceptPos = previousPos + segment * t;
+                vec3 segment = newPos - startPos;
+                vec3 interceptPos = startPos + segment * t;
                 float interceptRadial = length(interceptPos.xz);
                 bool hitsDisk =
                 abs(interceptPos.y) <= halfThickness
@@ -172,7 +240,7 @@ vec4 raymarch(vec3 ro, vec3 rd) {
         }
 
         previousPos = newPos;
-        previousRayDir = newRayDir;
+        previousRayDir = stepDir;
     }
 
     vec3 skyColor = getSkyColor(previousRayDir);
