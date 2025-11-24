@@ -1,10 +1,10 @@
 # Black Hole Simulation
 
-A 3D simulation of a black hole using Vulkan rendering via Silk.NET.
+A 3D simulation of a black hole using Vulkan rendering via Silk.NET and GLSL shaders.
 
 ## Project Overview
 
-This project simulates the gravitational effects and visual phenomena of a black hole in real-time using modern graphics APIs.
+This project simulates the gravitational effects and visual phenomena of a black hole in real-time.
 
 ## Technology Stack
 
@@ -30,23 +30,16 @@ This project simulates the gravitational effects and visual phenomena of a black
 ### Prerequisites
 
 - [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
-- Vulkan SDK (for development)
 - Windows/Linux/macOS with Vulkan-capable GPU
 
 ### Build Instructions
 
 ```bash
-# Restore dependencies
-dotnet restore
-
-# Build the project
-dotnet build
-
-# Run the application
+# Builds and runs the application
 dotnet run --project blackHole
 ```
 
 
 ## Current Status
 
-**In Development** - Currently implementing the Vulkan rendering pipeline for 3D visualization.
+**In Development** - Currently focusing on implementing an object loader to render arbitrary meshes.
