@@ -6,13 +6,15 @@ layout(location = 0) out vec4 outColor;
 layout(binding = 0) uniform sampler2D uSkybox;
 layout(binding = 1) uniform sampler2D uNoise;
 
-layout(binding = 2) uniform RayMarchUBO {
+layout(std140, binding = 2) uniform RayMarchUBO {
     mat4 uInvViewMatrix;
     vec3 uCameraPos;
+    float _pad0;
     vec4 uFrustumCorners[4];
     vec4 uAccretionDiskColor;
     vec4 uBlackHoleColor;
     vec2 uResolution;
+    vec2 _pad1;
     float uTime;
     float uSchwarzschildRadius;
     float uSpaceDistortion;
@@ -218,5 +220,5 @@ void main() {
         color += raymarch(ubo.uCameraPos, worldRay).rgb;
     }
 
-    outColor = vec4(color / samples, 1.0);
+    outColor = vec4(color / float(samples), 1.0);
 }
