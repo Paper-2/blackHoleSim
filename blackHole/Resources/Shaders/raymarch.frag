@@ -21,6 +21,8 @@ layout(std140, binding = 2) uniform RayMarchUBO {
     float uSchwarzschildRadius;
     float uSpaceDistortion;
     float uAccretionDiskThickness;
+    vec4 uOrbitSpherePosRadius;
+    vec4 uOrbitSphereColor;
 } ubo;
 
 // functions here were taken from shadertoys, and other tutorials. Or something.
@@ -150,6 +152,10 @@ vec4 raymarch(vec3 ro, vec3 rd) {
     float blackHoleInfluence = 0.0;
     float diskMask = 0.0;
     vec3 diskColor = vec3(0.0);
+    float diskHitDistance = -1.0;
+    float orbitSphereMask = 0.0;
+    vec3 orbitSphereColor = vec3(0.0);
+    float orbitSphereHitDistance = -1.0;
     float halfThickness = max(ubo.uAccretionDiskThickness, 0.001);
 
     bool hasBacktrace = false;
@@ -169,6 +175,7 @@ vec4 raymarch(vec3 ro, vec3 rd) {
         }
 
         vec3 startPos = previousPos;
+        float stepStartDistance = traveled;
         float adaptiveStep = nextStepOverride > 0.0
         ? nextStepOverride
         : ComputeAdaptiveStep(startPos, previousRayDir, baseStep, r, halfThickness);
@@ -177,6 +184,22 @@ vec4 raymarch(vec3 ro, vec3 rd) {
         vec3 stepVec = DistortRay(startPos, previousRayDir, adaptiveStep);
         vec3 stepDir = length(stepVec) > 0.0 ? normalize(stepVec) : previousRayDir;
         vec3 newPos = startPos + stepVec;
+
+        vec3 orbitToPoint = newPos - ubo.uOrbitSpherePosRadius.xyz;
+        float orbitSphereRadius = ubo.uOrbitSpherePosRadius.w;
+        float orbitDistance = length(orbitToPoint);
+        if (orbitDistance <= orbitSphereRadius + adaptiveStep * 0.5) {
+            vec3 normal = orbitDistance > 1e-5 ? normalize(orbitToPoint) : vec3(0.0, 1.0, 0.0);
+            vec3 lightDir = normalize(vec3(0.25, 0.9, 0.35));
+            float diffuse = max(dot(normal, lightDir), 0.18);
+            float rim = pow(1.0 - max(dot(normal, -stepDir), 0.0), 3.0);
+            orbitSphereColor = ubo.uOrbitSphereColor.rgb * (diffuse + rim * 0.35);
+            orbitSphereMask = 1.0;
+            orbitSphereHitDistance = stepStartDistance + adaptiveStep;
+            previousPos = newPos;
+            previousRayDir = stepDir;
+            break;
+        }
 
         float postDistance = length(newPos);
         if (postDistance < ubo.uSchwarzschildRadius) {
@@ -209,9 +232,11 @@ vec4 raymarch(vec3 ro, vec3 rd) {
 
         if (insideDisk) {
             float opacity = computeDiskOpacity(radial, innerRadius, outerRadius);
-            if (opacity > diskMask) {
+            float hitDistance = stepStartDistance + adaptiveStep;
+            if (diskHitDistance < 0.0 || hitDistance < diskHitDistance) {
                 diskColor = shadeDisk(newPos);
                 diskMask = opacity;
+                diskHitDistance = hitDistance;
             }
         } else if (diskMask < 1.0) {
             float prevHeight = startPos.y;
@@ -231,9 +256,11 @@ vec4 raymarch(vec3 ro, vec3 rd) {
                 && interceptRadial < outerRadius;
                 if (hitsDisk) {
                     float opacity = computeDiskOpacity(interceptRadial, innerRadius, outerRadius);
-                    if (opacity > diskMask) {
+                    float hitDistance = stepStartDistance + adaptiveStep * t;
+                    if (diskHitDistance < 0.0 || hitDistance < diskHitDistance) {
                         diskColor = shadeDisk(interceptPos);
                         diskMask = opacity;
+                        diskHitDistance = hitDistance;
                     }
                 }
             }
@@ -247,7 +274,13 @@ vec4 raymarch(vec3 ro, vec3 rd) {
     vec3 bhColor = ubo.uBlackHoleColor.rgb;
     vec3 background = mix(skyColor, bhColor, blackHoleInfluence);
 
-    vec3 finalColor = mix(background, diskColor, diskMask);
+    vec3 finalColor = background;
+    if (diskHitDistance >= 0.0) {
+        finalColor = mix(finalColor, diskColor, diskMask);
+    }
+    if (orbitSphereMask > 0.5 && (diskHitDistance < 0.0 || orbitSphereHitDistance < diskHitDistance)) {
+        finalColor = orbitSphereColor;
+    }
     finalColor = clamp(finalColor, 0.0, 1.0);
 
     return vec4(finalColor, 1.0);

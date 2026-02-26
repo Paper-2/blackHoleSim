@@ -64,6 +64,12 @@ public unsafe class RayMarchPipe : PipelineBuilder, IDisposable
 
         [FieldOffset(204)]
         public float uAccretionDiskThickness;
+
+        [FieldOffset(208)]
+        public Vector4D<float> uOrbitSpherePosRadius;
+
+        [FieldOffset(224)]
+        public Vector4D<float> uOrbitSphereColor;
     }
 
     private Silk.NET.Vulkan.Buffer[] uniformBuffers;

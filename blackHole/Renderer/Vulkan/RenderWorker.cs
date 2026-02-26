@@ -162,6 +162,17 @@ public unsafe class RenderWorker : IDisposable
     {
         if (_rayMarchPipeline != null)
         {
+            float schwarzschildRadius = (float)update.SimState.CentralBlackHole.SphereModel.Radius;
+            float orbitDistance = schwarzschildRadius * 13.0f;
+            float orbitSpeed = 0.5f;
+            float orbitAngle = update.Time * orbitSpeed;
+            float orbitHeight = MathF.Sin(update.Time * 0.9f) * schwarzschildRadius * 0.4f;
+            var orbitSpherePos = new Vector3D<float>(
+                MathF.Cos(orbitAngle) * orbitDistance,
+                orbitHeight,
+                MathF.Sin(orbitAngle) * orbitDistance
+            );
+
             Matrix4X4<float> invViewMatrix;
             Matrix4X4.Invert(update.ViewMatrix, out invViewMatrix);
             float tanHalfFov = MathF.Tan(update.Fov / 2.0f);
@@ -184,9 +195,16 @@ public unsafe class RenderWorker : IDisposable
                 uBlackHoleColor = new Vector4D<float>(0.0f, 0.0f, 0.0f, 1.0f),
                 uResolution = new Vector2D<float>(_width, _height),
                 uTime = update.Time,
-                uSchwarzschildRadius = (float)update.SimState.CentralBlackHole.SphereModel.Radius,
+                uSchwarzschildRadius = schwarzschildRadius,
                 uSpaceDistortion = 4.069f,
                 uAccretionDiskThickness = 0.02f,
+                uOrbitSpherePosRadius = new Vector4D<float>(
+                    orbitSpherePos.X,
+                    orbitSpherePos.Y,
+                    orbitSpherePos.Z,
+                    schwarzschildRadius * 0.6f
+                ),
+                uOrbitSphereColor = new Vector4D<float>(0.35f, 0.8f, 1.0f, 1.0f),
             };
         }
     }
