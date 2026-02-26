@@ -2,6 +2,8 @@
 
 A 3D simulation of a black hole using Vulkan rendering via Silk.NET and GLSL shaders.
 
+![Black Hole Simulation](https://github.com/Paper-2/blackHoleSim/blob/master/simulation.gif?raw=true)
+
 ## Project Overview
 
 This project simulates the gravitational effects and visual phenomena of a black hole in real-time.
